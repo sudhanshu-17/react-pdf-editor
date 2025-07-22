@@ -45,9 +45,8 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    e.nativeEvent.stopImmediatePropagation(); // Prevent canvas deselection
+    e.nativeEvent.stopImmediatePropagation();
     onStartEdit(textElement.id);
-    console.log('✏️ Starting text edit:', textElement.id);
   }, [textElement.id, onStartEdit]);
 
   const handleTextChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,7 +67,6 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
     e.stopPropagation();
     setIsDragging(true);
     onSelect(textElement.id);
-    console.log('🖱️ Started dragging text element:', textElement.id);
   }, [textElement.id, onSelect]);
 
   const handleStop = useCallback(() => {
@@ -78,9 +76,8 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
   const handleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    e.nativeEvent.stopImmediatePropagation(); // Prevent canvas deselection
+    e.nativeEvent.stopImmediatePropagation();
     onSelect(textElement.id);
-    console.log('📝 Text element selected:', textElement.id);
   }, [textElement.id, onSelect]);
 
   const textStyle = {

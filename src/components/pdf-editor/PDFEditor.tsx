@@ -2,10 +2,12 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { PDFUpload } from './PDFUpload';
 import { Toolbar } from './Toolbar';
 import { PDFViewer } from './PDFViewer';
-import { TextElement, ToolbarState, PDFDocument } from '@/types/pdf-editor';
+import { SignatureCanvasComponent } from './SignatureCanvas';
+import { TextElement, SignatureElement, SavedSignature, ToolbarState, PDFDocument } from '@/types/pdf-editor';
 import { Button } from '@/components/ui/button';
 import { Download, Save, FileText, Image, FileCode, ChevronDown } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { 
   DropdownMenu,
@@ -16,31 +18,65 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { exportAsPDF, exportAsImage, exportProjectData, exportTextData } from '@/lib/pdf-export';
 
+// Storage keys for localStorage
+const SAVED_SIGNATURES_KEY = 'pdf-editor-saved-signatures';
+
+// Helper functions for signature storage
+const loadSavedSignatures = (): SavedSignature[] => {
+  try {
+    const stored = localStorage.getItem(SAVED_SIGNATURES_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveSavedSignatures = (signatures: SavedSignature[]) => {
+  try {
+    localStorage.setItem(SAVED_SIGNATURES_KEY, JSON.stringify(signatures));
+  } catch {
+    // Silent fail if localStorage is not available
+  }
+};
+
 export const PDFEditor: React.FC = () => {
   const [document, setDocument] = useState<PDFDocument | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [showSignatureCanvas, setShowSignatureCanvas] = useState(false);
+  const [savedSignatures, setSavedSignatures] = useState<SavedSignature[]>(() => loadSavedSignatures());
   const [toolbarState, setToolbarState] = useState<ToolbarState>({
     selectedTool: 'select',
     fontSize: 16,
     fontFamily: 'Arial',
     color: '#000000',
     fontWeight: 'normal',
-    fontStyle: 'normal'
+    fontStyle: 'normal',
+    signatureCanvasWidth: 400,
+    signatureCanvasHeight: 200,
+    signatureColor: '#000000'
   });
 
   const { toast } = useToast();
+
+  // Save signatures to localStorage whenever savedSignatures changes
+  useEffect(() => {
+    saveSavedSignatures(savedSignatures);
+  }, [savedSignatures]);
 
   const handleFileUpload = useCallback((file: File) => {
     setDocument({
       file,
       name: file.name,
       numPages: 0,
-      textElements: []
+      textElements: [],
+      signatureElements: []
     });
     setCurrentPage(1);
     setSelectedTextId(null);
+    setSelectedSignatureId(null);
     setEditingTextId(null);
     
     toast({
@@ -70,27 +106,54 @@ export const PDFEditor: React.FC = () => {
 
     // Auto-select and start editing the new text element
     setSelectedTextId(newElement.id);
+    setSelectedSignatureId(null);
     
     // Start editing after a small delay to ensure the element is rendered
     setTimeout(() => {
       setEditingTextId(newElement.id);
     }, 50);
 
-    // 🎯 Smart UX: Switch back to select tool after adding text
-    // This prevents accidental creation of multiple text elements
+    // Switch back to select tool after adding text
     setToolbarState(prev => ({ 
       ...prev, 
       selectedTool: 'select' 
     }));
 
-    // Show user-friendly feedback
     toast({
       title: "Text Added! ✨",
       description: "Now in Select mode. Click the text to edit, or drag to move.",
       duration: 3000,
     });
-    
-    console.log('✅ New text element added, editing started, and switched to select mode');
+  }, [document, toast]);
+
+  const handleSignatureElementAdd = useCallback((element: Omit<SignatureElement, 'id'>) => {
+    if (!document) return;
+
+    const newElement: SignatureElement = {
+      ...element,
+      id: `signature-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    };
+
+    setDocument(prev => prev ? {
+      ...prev,
+      signatureElements: [...prev.signatureElements, newElement]
+    } : null);
+
+    // Auto-select the new signature element
+    setSelectedSignatureId(newElement.id);
+    setSelectedTextId(null);
+
+    // Switch back to select tool after adding signature
+    setToolbarState(prev => ({ 
+      ...prev, 
+      selectedTool: 'select' 
+    }));
+
+    toast({
+      title: "Signature Added! ✍️",
+      description: "Signature placed successfully. Drag to reposition, resize, or rotate.",
+      duration: 3000,
+    });
   }, [document, toast]);
 
   const handleTextElementUpdate = useCallback((id: string, updates: Partial<TextElement>) => {
@@ -99,6 +162,17 @@ export const PDFEditor: React.FC = () => {
     setDocument(prev => prev ? {
       ...prev,
       textElements: prev.textElements.map(element =>
+        element.id === id ? { ...element, ...updates } : element
+      )
+    } : null);
+  }, [document]);
+
+  const handleSignatureElementUpdate = useCallback((id: string, updates: Partial<SignatureElement>) => {
+    if (!document) return;
+
+    setDocument(prev => prev ? {
+      ...prev,
+      signatureElements: prev.signatureElements.map(element =>
         element.id === id ? { ...element, ...updates } : element
       )
     } : null);
@@ -120,8 +194,33 @@ export const PDFEditor: React.FC = () => {
     }
   }, [document, selectedTextId, editingTextId]);
 
+  const handleSignatureElementDelete = useCallback((id: string) => {
+    if (!document) return;
+
+    setDocument(prev => prev ? {
+      ...prev,
+      signatureElements: prev.signatureElements.filter(element => element.id !== id)
+    } : null);
+
+    if (selectedSignatureId === id) {
+      setSelectedSignatureId(null);
+    }
+
+    toast({
+      title: "Signature Deleted",
+      description: "Signature removed successfully.",
+    });
+  }, [document, selectedSignatureId, toast]);
+
   const handleTextElementSelect = useCallback((id: string | null) => {
     setSelectedTextId(id);
+    setSelectedSignatureId(null);
+    setEditingTextId(null);
+  }, []);
+
+  const handleSignatureElementSelect = useCallback((id: string | null) => {
+    setSelectedSignatureId(id);
+    setSelectedTextId(null);
     setEditingTextId(null);
   }, []);
 
@@ -138,7 +237,7 @@ export const PDFEditor: React.FC = () => {
     setToolbarState(prev => ({ ...prev, ...updates }));
     
     // Apply updates to selected text element
-    if (selectedTextId && document) {
+    if (selectedTextId && document && updates.selectedTool !== 'signature') {
       const updatesToApply: Partial<TextElement> = {};
       
       if (updates.fontSize !== undefined) updatesToApply.fontSize = updates.fontSize;
@@ -151,13 +250,198 @@ export const PDFEditor: React.FC = () => {
         handleTextElementUpdate(selectedTextId, updatesToApply);
       }
     }
-  }, [selectedTextId, document, handleTextElementUpdate]);
+
+    // Handle signature tool selection
+    if (updates.selectedTool === 'signature' && updates.selectedTool !== toolbarState.selectedTool) {
+      setShowSignatureCanvas(true);
+    }
+  }, [selectedTextId, document, handleTextElementUpdate, toolbarState.selectedTool]);
+
+  // Handle signature canvas save
+  const handleSignatureSave = useCallback((imageData: string) => {
+    if (!document) return;
+
+    // Create a temporary image to get dimensions using window.Image
+    const img = window.document.createElement('img');
+    img.onload = () => {
+      const width = img.naturalWidth || toolbarState.signatureCanvasWidth;
+      const height = img.naturalHeight || toolbarState.signatureCanvasHeight;
+
+      // Save signature to stored signatures
+      const savedSignature: SavedSignature = {
+        id: `saved-signature-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: `Signature ${savedSignatures.length + 1}`,
+        imageData,
+        width,
+        height,
+        color: toolbarState.signatureColor,
+        timestamp: Date.now()
+      };
+
+      // Add to saved signatures (limit to 10 signatures)
+      setSavedSignatures(prev => {
+        const updated = [savedSignature, ...prev].slice(0, 10);
+        return updated;
+      });
+
+      // Create signature element for the document
+      const signatureElement: Omit<SignatureElement, 'id'> = {
+        imageData,
+        x: 50,
+        y: 50,
+        width,
+        height,
+        rotation: 0,
+        color: toolbarState.signatureColor,
+        opacity: 1.0,
+        pageNumber: currentPage,
+        timestamp: Date.now()
+      };
+
+      handleSignatureElementAdd(signatureElement);
+      setShowSignatureCanvas(false);
+
+      toast({
+        title: "Signature Saved! 💾",
+        description: "Signature has been saved for future use. Check the toolbar to reuse it.",
+        duration: 4000,
+      });
+    };
+    img.onerror = () => {
+      // Fallback if image loading fails
+      const signatureElement: Omit<SignatureElement, 'id'> = {
+        imageData,
+        x: 50,
+        y: 50,
+        width: toolbarState.signatureCanvasWidth,
+        height: toolbarState.signatureCanvasHeight,
+        rotation: 0,
+        color: toolbarState.signatureColor,
+        opacity: 1.0,
+        pageNumber: currentPage,
+        timestamp: Date.now()
+      };
+
+      handleSignatureElementAdd(signatureElement);
+      setShowSignatureCanvas(false);
+    };
+    img.src = imageData;
+  }, [document, currentPage, toolbarState.signatureCanvasWidth, toolbarState.signatureCanvasHeight, toolbarState.signatureColor, savedSignatures.length, handleSignatureElementAdd, toast]);
+
+  const handleSignatureCancel = useCallback(() => {
+    setShowSignatureCanvas(false);
+    setToolbarState(prev => ({ ...prev, selectedTool: 'select' }));
+  }, []);
+
+  // Use saved signature
+  const handleUseSavedSignature = useCallback((savedSignature: SavedSignature) => {
+    if (!document) return;
+
+    const signatureElement: Omit<SignatureElement, 'id'> = {
+      imageData: savedSignature.imageData,
+      x: 50,
+      y: 50,
+      width: savedSignature.width,
+      height: savedSignature.height,
+      rotation: 0,
+      color: savedSignature.color,
+      opacity: 1.0,
+      pageNumber: currentPage,
+      timestamp: Date.now()
+    };
+
+    handleSignatureElementAdd(signatureElement);
+
+    toast({
+      title: "Signature Reused! ♻️",
+      description: `Applied "${savedSignature.name}" to your document.`,
+      duration: 3000,
+    });
+  }, [document, currentPage, handleSignatureElementAdd, toast]);
+
+  // Delete saved signature
+  const handleDeleteSavedSignature = useCallback((signatureId: string) => {
+    setSavedSignatures(prev => prev.filter(sig => sig.id !== signatureId));
+    toast({
+      title: "Saved Signature Deleted",
+      description: "Signature removed from saved signatures.",
+      duration: 2000,
+    });
+  }, [toast]);
+
+  // Clear all saved signatures
+  const handleClearSavedSignatures = useCallback(() => {
+    setSavedSignatures([]);
+    toast({
+      title: "All Signatures Cleared",
+      description: "All saved signatures have been removed.",
+      duration: 2000,
+    });
+  }, [toast]);
+
+  // Duplicate selected element (Ctrl+D)
+  const handleDuplicateElement = useCallback(() => {
+    if (!document) return;
+
+    if (selectedTextId) {
+      // Duplicate text element
+      const textElement = document.textElements.find(el => el.id === selectedTextId);
+      if (textElement) {
+        const newElement: TextElement = {
+          ...textElement,
+          id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          x: textElement.x + 20, // Offset by 20px
+          y: textElement.y + 20,
+        };
+
+        setDocument(prev => prev ? {
+          ...prev,
+          textElements: [...prev.textElements, newElement]
+        } : null);
+
+        // Select the new element
+        setSelectedTextId(newElement.id);
+        setSelectedSignatureId(null);
+
+        toast({
+          title: "Text Duplicated! 📄",
+          description: "Text element duplicated and selected.",
+          duration: 2000,
+        });
+      }
+    } else if (selectedSignatureId) {
+      // Duplicate signature element
+      const signatureElement = document.signatureElements.find(el => el.id === selectedSignatureId);
+      if (signatureElement) {
+        const newElement: SignatureElement = {
+          ...signatureElement,
+          id: `signature-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          x: signatureElement.x + 20, // Offset by 20px
+          y: signatureElement.y + 20,
+          timestamp: Date.now()
+        };
+
+        setDocument(prev => prev ? {
+          ...prev,
+          signatureElements: [...prev.signatureElements, newElement]
+        } : null);
+
+        // Select the new element
+        setSelectedSignatureId(newElement.id);
+        setSelectedTextId(null);
+
+        toast({
+          title: "Signature Duplicated! ✍️",
+          description: "Signature duplicated and selected.",
+          duration: 2000,
+        });
+      }
+    }
+  }, [document, selectedTextId, selectedSignatureId, toast]);
 
   const handleSave = useCallback(() => {
     if (!document) return;
     
-    // Here you would implement saving logic
-    // For now, just show a toast
     toast({
       title: "Document Saved",
       description: "Your changes have been saved locally",
@@ -177,11 +461,11 @@ export const PDFEditor: React.FC = () => {
     try {
       toast({
         title: "Exporting as PDF...",
-        description: "Creating your PDF with text overlays",
+        description: "Creating your PDF with text overlays and signatures",
       });
 
       const fileName = getFileName();
-      await exportAsPDF(document, fileName);
+      await exportAsPDF(document, fileName, currentPage);
       
       toast({
         title: "PDF Export Complete! 📄",
@@ -189,14 +473,13 @@ export const PDFEditor: React.FC = () => {
       });
       
     } catch (error) {
-      console.error('PDF export failed:', error);
       toast({
         title: "Export Failed",
         description: "Could not export as PDF. Please try again.",
         variant: "destructive",
       });
     }
-  }, [document, toast, getFileName]);
+  }, [document, toast, getFileName, currentPage]);
 
   // Export as PNG Image
   const handleExportImage = useCallback(async () => {
@@ -217,7 +500,6 @@ export const PDFEditor: React.FC = () => {
       });
       
     } catch (error) {
-      console.error('Image export failed:', error);
       toast({
         title: "Export Failed",
         description: "Could not export as image. Please try again.",
@@ -233,7 +515,7 @@ export const PDFEditor: React.FC = () => {
     try {
       toast({
         title: "Exporting Project...",
-        description: "Saving your text overlays and settings",
+        description: "Saving your text overlays, signatures and settings",
       });
 
       const fileName = getFileName();
@@ -245,7 +527,6 @@ export const PDFEditor: React.FC = () => {
       });
       
     } catch (error) {
-      console.error('Project export failed:', error);
       toast({
         title: "Export Failed",
         description: "Could not save project data. Please try again.",
@@ -273,7 +554,6 @@ export const PDFEditor: React.FC = () => {
       });
       
     } catch (error) {
-      console.error('Text export failed:', error);
       toast({
         title: "Export Failed",
         description: "Could not export text data. Please try again.",
@@ -289,40 +569,65 @@ export const PDFEditor: React.FC = () => {
     ) || [];
   }, [document?.textElements, currentPage]);
 
-  // Keyboard shortcuts for tool switching
+  // Memoize current page signature elements for performance
+  const currentPageSignatures = useMemo(() => {
+    return document?.signatureElements.filter(
+      signature => signature.pageNumber === currentPage
+    ) || [];
+  }, [document?.signatureElements, currentPage]);
+
+  // Keyboard shortcuts for tool switching and duplication
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle shortcuts when not editing text
-      if (editingTextId) return;
+      if (editingTextId || showSignatureCanvas) return;
       
-      // Ignore shortcuts if user is typing in an input/textarea
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // Handle Ctrl+D for duplication
+      if (e.ctrlKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        if (selectedTextId || selectedSignatureId) {
+          handleDuplicateElement();
+        }
         return;
       }
 
       switch (e.key.toLowerCase()) {
         case 'v':
-          if (!e.ctrlKey && !e.metaKey) { // Avoid conflict with Ctrl+V
+          if (!e.ctrlKey && !e.metaKey) {
             e.preventDefault();
             setToolbarState(prev => ({ ...prev, selectedTool: 'select' }));
           }
           break;
         case 't':
-          if (!e.ctrlKey && !e.metaKey) { // Avoid conflict with Ctrl+T
+          if (!e.ctrlKey && !e.metaKey) {
             e.preventDefault();
             setToolbarState(prev => ({ ...prev, selectedTool: 'text' }));
           }
           break;
+        case 's':
+          if (!e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            setToolbarState(prev => ({ ...prev, selectedTool: 'signature' }));
+            setShowSignatureCanvas(true);
+          }
+          break;
         case 'escape':
-          // Escape always switches to select mode and deselects text
           e.preventDefault();
           setToolbarState(prev => ({ ...prev, selectedTool: 'select' }));
           if (selectedTextId) {
-            console.log('⌨️ Deselecting text with Escape key');
             setSelectedTextId(null);
+          }
+          if (selectedSignatureId) {
+            setSelectedSignatureId(null);
           }
           if (editingTextId) {
             setEditingTextId(null);
+          }
+          if (showSignatureCanvas) {
+            setShowSignatureCanvas(false);
           }
           break;
       }
@@ -330,7 +635,7 @@ export const PDFEditor: React.FC = () => {
 
     window.document.addEventListener('keydown', handleKeyDown);
     return () => window.document.removeEventListener('keydown', handleKeyDown);
-  }, [editingTextId, selectedTextId]);
+  }, [editingTextId, selectedTextId, selectedSignatureId, showSignatureCanvas, handleDuplicateElement]);
 
   if (!document) {
     return (
@@ -340,7 +645,7 @@ export const PDFEditor: React.FC = () => {
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center gap-3">
               <FileText className="w-8 h-8 text-primary" />
-              <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+              <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text">
                 InkAgent PDF Editor Pro
               </h1>
             </div>
@@ -420,11 +725,15 @@ export const PDFEditor: React.FC = () => {
       {/* Main Content */}
       <div className="flex-1 flex">
         {/* Sidebar */}
-        <div className="w-80 bg-sidebar-bg border-r shadow-soft overflow-y-auto">
-          <div className="p-4">
+        <div className="w-80 bg-sidebar-bg border-r shadow-soft flex flex-col max-h-[calc(100vh-73px)]">
+          <div className="flex-1 overflow-y-auto p-4">
             <Toolbar 
               toolbarState={toolbarState}
               onToolbarChange={handleToolbarChange}
+              savedSignatures={savedSignatures}
+              onUseSavedSignature={handleUseSavedSignature}
+              onDeleteSavedSignature={handleDeleteSavedSignature}
+              onClearSavedSignatures={handleClearSavedSignatures}
             />
           </div>
         </div>
@@ -434,22 +743,41 @@ export const PDFEditor: React.FC = () => {
           <PDFViewer
             file={document.file}
             textElements={currentPageTexts}
+            signatureElements={currentPageSignatures}
             currentPage={currentPage}
             numPages={document.numPages}
             toolbarState={toolbarState}
             selectedTextId={selectedTextId}
+            selectedSignatureId={selectedSignatureId}
             editingTextId={editingTextId}
             onPageChange={setCurrentPage}
             onNumPagesChange={handleNumPagesChange}
             onTextElementUpdate={handleTextElementUpdate}
+            onSignatureElementUpdate={handleSignatureElementUpdate}
             onTextElementDelete={handleTextElementDelete}
+            onSignatureElementDelete={handleSignatureElementDelete}
             onTextElementSelect={handleTextElementSelect}
+            onSignatureElementSelect={handleSignatureElementSelect}
             onTextElementAdd={handleTextElementAdd}
+            onSignatureElementAdd={handleSignatureElementAdd}
             onStartEdit={handleStartEdit}
             onStopEdit={handleStopEdit}
           />
         </div>
       </div>
+
+      {/* Signature Canvas Modal */}
+      <Dialog open={showSignatureCanvas} onOpenChange={setShowSignatureCanvas}>
+        <DialogContent className="max-w-3xl">
+          <SignatureCanvasComponent
+            width={toolbarState.signatureCanvasWidth}
+            height={toolbarState.signatureCanvasHeight}
+            color={toolbarState.signatureColor}
+            onSave={handleSignatureSave}
+            onCancel={handleSignatureCancel}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

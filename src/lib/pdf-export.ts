@@ -1,14 +1,12 @@
 import { saveAs } from 'file-saver';
-import { PDFDocument, TextElement } from '@/types/pdf-editor';
+import { PDFDocument, TextElement, SignatureElement } from '@/types/pdf-editor';
 import jsPDF from 'jspdf';
 
-// Export the PDF viewer as an image (PNG)
+// Export the PDF viewer as an image (PNG) with signature support
 export const exportAsImage = async (
   filename: string = 'edited-pdf'
 ): Promise<void> => {
   try {
-    console.log('🎨 Starting image export...');
-    
     // Wait for any pending renders
     await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -18,19 +16,15 @@ export const exportAsImage = async (
       throw new Error('PDF document container not found');
     }
 
-    // Get the PDF page element
     const pdfPageElement = pdfContainer.querySelector('.react-pdf__Page');
     if (!pdfPageElement) {
       throw new Error('PDF page element not found');
     }
 
-    // Get the original canvas from react-pdf
     const originalCanvas = pdfPageElement.querySelector('canvas') as HTMLCanvasElement;
     if (!originalCanvas) {
       throw new Error('PDF canvas not found');
     }
-
-    console.log('📄 Found PDF canvas:', originalCanvas.width, 'x', originalCanvas.height);
 
     // Create a new canvas for export
     const exportCanvas = document.createElement('canvas');
@@ -48,62 +42,105 @@ export const exportAsImage = async (
 
     // Get all text overlays
     const textOverlays = document.querySelectorAll('[data-text-overlay="true"]');
-    console.log('📝 Found text overlays:', textOverlays.length);
 
     // Draw text overlays on top
-    textOverlays.forEach((overlay, index) => {
+    textOverlays.forEach((overlay) => {
       try {
         const element = overlay as HTMLElement;
         const rect = element.getBoundingClientRect();
         const pdfRect = originalCanvas.getBoundingClientRect();
         
-        // Calculate relative position (accounting for scaling)
         const relativeX = (rect.left - pdfRect.left) / pdfRect.width;
         const relativeY = (rect.top - pdfRect.top) / pdfRect.height;
         
         const x = relativeX * exportCanvas.width;
         const y = relativeY * exportCanvas.height;
         
-        // Get text content
         const textContent = element.textContent || element.innerText || '';
         if (!textContent) return;
         
-        // Get computed style
         const computedStyle = window.getComputedStyle(element);
         const fontSize = parseFloat(computedStyle.fontSize) * (exportCanvas.width / pdfRect.width);
         
-        // Set text style
         ctx.font = `${computedStyle.fontWeight} ${fontSize}px ${computedStyle.fontFamily}`;
         ctx.fillStyle = computedStyle.color || '#000000';
         ctx.textBaseline = 'top';
         
-        // Draw text
         ctx.fillText(textContent, x, y);
         
-        console.log(`✏️ Drew text ${index + 1}: "${textContent}" at (${Math.round(x)}, ${Math.round(y)})`);
-        
       } catch (overlayError) {
-        console.warn('Failed to draw text overlay:', overlayError);
+        // Silent error handling
       }
     });
 
-    // Convert canvas to blob and download
+    // Get all signature overlays
+    const signatureOverlays = document.querySelectorAll('[data-signature-overlay="true"]');
+
+    // Draw signature overlays on top using Promise.all for better performance
+    const signaturePromises = Array.from(signatureOverlays).map((overlay) => {
+      return new Promise<void>((resolve) => {
+        try {
+          const element = overlay as HTMLElement;
+          const rect = element.getBoundingClientRect();
+          const pdfRect = originalCanvas.getBoundingClientRect();
+          
+          const relativeX = (rect.left - pdfRect.left) / pdfRect.width;
+          const relativeY = (rect.top - pdfRect.top) / pdfRect.height;
+          
+          const x = relativeX * exportCanvas.width;
+          const y = relativeY * exportCanvas.height;
+          
+          const signatureImg = element.querySelector('img') as HTMLImageElement;
+          if (!signatureImg || !signatureImg.src) {
+            resolve();
+            return;
+          }
+          
+          const img = window.document.createElement('img');
+          img.onload = () => {
+            try {
+              const imgWidth = img.naturalWidth || img.width;
+              const imgHeight = img.naturalHeight || img.height;
+              const scaleX = (rect.width / pdfRect.width) * exportCanvas.width / imgWidth;
+              const scaleY = (rect.height / pdfRect.height) * exportCanvas.height / imgHeight;
+              const scale = Math.min(scaleX, scaleY);
+              
+              const scaledWidth = imgWidth * scale;
+              const scaledHeight = imgHeight * scale;
+              
+              ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+              resolve();
+            } catch (error) {
+              resolve();
+            }
+          };
+          img.onerror = () => resolve();
+          img.src = signatureImg.src;
+          
+        } catch (overlayError) {
+          resolve();
+        }
+      });
+    });
+
+    // Wait for all signatures to be drawn
+    await Promise.all(signaturePromises);
+
+    // Convert canvas to high-quality PNG blob and download
     exportCanvas.toBlob((blob) => {
       if (blob) {
         saveAs(blob, `${filename}.png`);
-        console.log('✅ Image export completed:', `${filename}.png`);
       } else {
         throw new Error('Failed to create image blob');
       }
-    }, 'image/png', 0.95);
+    }, 'image/png', 1.0); // Maximum quality PNG
 
   } catch (error) {
-    console.error('❌ Export failed:', error);
     throw error;
   }
 };
 
-// Export PDF data with text overlay information as JSON
+// Export PDF data with text overlay and signature information as JSON
 export const exportProjectData = (
   document: PDFDocument,
   filename: string = 'pdf-project'
@@ -113,8 +150,13 @@ export const exportProjectData = (
       filename: document.name,
       numPages: document.numPages,
       textElements: document.textElements,
+      signatureElements: document.signatureElements.map(sig => ({
+        ...sig,
+        // Store signature metadata but truncate image data for file size
+        imageDataPreview: sig.imageData.substring(0, 100) + '...[truncated]'
+      })),
       timestamp: new Date().toISOString(),
-      version: '1.0'
+      version: '2.0'
     };
 
     const blob = new Blob([JSON.stringify(projectData, null, 2)], {
@@ -123,25 +165,20 @@ export const exportProjectData = (
 
     saveAs(blob, `${filename}.json`);
   } catch (error) {
-    console.error('Project export failed:', error);
     throw error;
   }
 };
 
-// Real PDF export function using jsPDF
+// Real PDF export function using jsPDF with signature support
 export const exportAsPDF = async (
   document: PDFDocument,
-  filename: string = 'edited-pdf'
+  filename: string = 'edited-pdf',
+  currentPage: number = 1
 ): Promise<void> => {
   try {
-    console.log('📄 Starting REAL PDF export...');
-    console.log('📋 Document:', document.name);
-    console.log('📝 Text elements to export:', document.textElements.length);
-    
     // Wait for any pending renders
     await new Promise(resolve => setTimeout(resolve, 200));
 
-    // Find the PDF container and canvas
     const pdfContainer = window.document.querySelector('.react-pdf__Document');
     if (!pdfContainer) {
       throw new Error('PDF document container not found');
@@ -157,15 +194,10 @@ export const exportAsPDF = async (
       throw new Error('PDF canvas not found');
     }
 
-    console.log('📄 Found PDF canvas:', originalCanvas.width, 'x', originalCanvas.height);
-
-    // Get canvas as image data
+    // Get canvas as high-quality image data
     const canvasDataUrl = originalCanvas.toDataURL('image/jpeg', 0.95);
     
-    // Use a simpler approach - match the canvas size more directly
     const canvasRatio = originalCanvas.width / originalCanvas.height;
-    
-    // Use a standard scale that works better
     const scaleFactor = 0.264583; // mm per pixel
     const pdfWidth = originalCanvas.width * scaleFactor;
     const pdfHeight = originalCanvas.height * scaleFactor;
@@ -177,79 +209,143 @@ export const exportAsPDF = async (
       format: [pdfWidth, pdfHeight]
     });
 
-    console.log(`📐 PDF size: ${Math.round(pdfWidth)}mm x ${Math.round(pdfHeight)}mm (scale: ${scaleFactor})`);
-
     // Add the original PDF page as background image
     pdf.addImage(canvasDataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
 
-    // Add text overlays
-    const textOverlays = window.document.querySelectorAll('[data-text-overlay="true"]');
-    console.log('📝 Adding text overlays:', textOverlays.length);
+    // Get PDF page bounds for coordinate conversion
+    const pdfRect = originalCanvas.getBoundingClientRect();
 
-    textOverlays.forEach((overlay, index) => {
+    // Filter text elements for current page only
+    const currentPageTextElements = document.textElements.filter(
+      element => element.pageNumber === currentPage
+    );
+
+    // Add text elements using actual TextElement data (much more reliable!)
+    currentPageTextElements.forEach((textElement) => {
       try {
-        const element = overlay as HTMLElement;
-        const rect = element.getBoundingClientRect();
-        const pdfRect = originalCanvas.getBoundingClientRect();
+        // Skip empty text
+        if (!textElement.content.trim()) return;
+
+        // Find the corresponding DOM element for position
+        const domElement = window.document.querySelector(
+          `[data-text-overlay="true"][data-text-id="${textElement.id}"]`
+        ) as HTMLElement;
         
-        // Get text content
-        const textContent = element.textContent || element.innerText || '';
-        if (!textContent.trim()) return;
+        let x, y;
         
-        // Simpler direct mapping approach
-        const relativeX = (rect.left - pdfRect.left);
-        const relativeY = (rect.top - pdfRect.top);
+        if (domElement) {
+          // Use DOM position if element is found
+          const rect = domElement.getBoundingClientRect();
+          x = (rect.left - pdfRect.left) * scaleFactor;
+          y = (rect.top - pdfRect.top) * scaleFactor;
+        } else {
+          // Fallback to stored coordinates
+          x = textElement.x * scaleFactor;
+          y = textElement.y * scaleFactor;
+        }
+
+        // Convert font size to PDF units (more accurate conversion)
+        const fontSizeMM = (textElement.fontSize * scaleFactor * 0.75); // 0.75 is the px to pt conversion
         
-        // Direct coordinate mapping using the scale factor
-        const x = relativeX * scaleFactor;
-        const y = relativeY * scaleFactor + 3; // Small baseline offset
+        // Set font size with proper bounds
+        pdf.setFontSize(Math.max(8, Math.min(72, fontSizeMM)));
         
-        // Get computed style
-        const computedStyle = window.getComputedStyle(element);
+        // Set text color using the actual stored color with better handling
+        let textColor = textElement.color || '#000000';
         
-        // Simpler font size calculation - direct pixel to mm conversion
-        const fontSizePx = parseFloat(computedStyle.fontSize);
-        const fontSizeMM = fontSizePx * scaleFactor * 3.78; // Convert to points for PDF (1mm ≈ 2.83pt)
-        
-        // Fix color parsing - convert RGB to hex if needed
-        let textColor = computedStyle.color || '#000000';
-        if (textColor.startsWith('rgb')) {
-          const rgbMatch = textColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-          if (rgbMatch) {
-            const r = parseInt(rgbMatch[1]).toString(16).padStart(2, '0');
-            const g = parseInt(rgbMatch[2]).toString(16).padStart(2, '0');
-            const b = parseInt(rgbMatch[3]).toString(16).padStart(2, '0');
-            textColor = `#${r}${g}${b}`;
-          }
+        // Ensure color is in correct hex format
+        if (!textColor.startsWith('#')) {
+          textColor = '#000000'; // fallback to black
         }
         
-        // Set text style in PDF with better values
-        pdf.setFontSize(Math.max(6, Math.min(48, fontSizeMM))); // Clamp between 6-48pt
         pdf.setTextColor(textColor);
         
-        // Set font weight
-        if (computedStyle.fontWeight === 'bold' || parseInt(computedStyle.fontWeight) >= 600) {
-          pdf.setFont('helvetica', 'bold');
-        } else {
-          pdf.setFont('helvetica', 'normal');
+        // Map font family to PDF-supported fonts
+        let pdfFontFamily = 'helvetica'; // default
+        const fontFamily = textElement.fontFamily.toLowerCase();
+        
+        if (fontFamily.includes('times') || fontFamily.includes('serif')) {
+          pdfFontFamily = 'times';
+        } else if (fontFamily.includes('courier') || fontFamily.includes('mono')) {
+          pdfFontFamily = 'courier';
         }
+        // helvetica covers Arial, sans-serif, etc.
+
+        // Set font weight and style using actual stored values
+        let fontStyle = 'normal';
+        if (textElement.fontWeight === 'bold' && textElement.fontStyle === 'italic') {
+          fontStyle = 'bolditalic';
+        } else if (textElement.fontWeight === 'bold') {
+          fontStyle = 'bold';
+        } else if (textElement.fontStyle === 'italic') {
+          fontStyle = 'italic';
+        }
+
+        pdf.setFont(pdfFontFamily, fontStyle);
         
-        // Add text to PDF
-        pdf.text(textContent, x, y);
+        // Add text to PDF with proper positioning
+        pdf.text(textElement.content, x, y + fontSizeMM); // Adjust y for baseline
         
-        console.log(`✏️ Added text ${index + 1}: "${textContent}" at (${Math.round(x)}mm, ${Math.round(y)}mm), size: ${Math.round(fontSizeMM)}pt, color: ${textColor}`);
-        
-      } catch (overlayError) {
-        console.warn('Failed to add text overlay to PDF:', overlayError);
+      } catch (textError) {
+        console.warn('Error adding text element to PDF:', textError);
       }
     });
 
+    // Filter signature elements for current page only
+    const currentPageSignatureElements = document.signatureElements.filter(
+      element => element.pageNumber === currentPage
+    );
+
+    // Add signature overlays for current page
+    const signatureOverlays = window.document.querySelectorAll('[data-signature-overlay="true"]');
+
+    // Process signatures sequentially to avoid memory issues
+    for (let index = 0; index < signatureOverlays.length; index++) {
+      const overlay = signatureOverlays[index];
+      
+      try {
+        const element = overlay as HTMLElement;
+        const signatureId = element.getAttribute('data-signature-id');
+        
+        // Only process signatures that are on the current page
+        const signatureElement = currentPageSignatureElements.find(sig => sig.id === signatureId);
+        if (!signatureElement) continue;
+        
+        const rect = element.getBoundingClientRect();
+        
+        const signatureImg = element.querySelector('img') as HTMLImageElement;
+        if (!signatureImg || !signatureImg.src) {
+          continue;
+        }
+        
+        const relativeX = (rect.left - pdfRect.left);
+        const relativeY = (rect.top - pdfRect.top);
+        
+        const x = relativeX * scaleFactor;
+        const y = relativeY * scaleFactor;
+        
+        const signatureWidthMM = rect.width * scaleFactor;
+        const signatureHeightMM = rect.height * scaleFactor;
+        
+        // Add signature image to PDF with high quality
+        pdf.addImage(
+          signatureImg.src,
+          'PNG',
+          x,
+          y,
+          signatureWidthMM,
+          signatureHeightMM
+        );
+        
+      } catch (signatureError) {
+        console.warn('Error adding signature to PDF:', signatureError);
+      }
+    }
+
     // Save the PDF
     pdf.save(`${filename}.pdf`);
-    console.log('✅ Real PDF export completed:', `${filename}.pdf`);
     
   } catch (error) {
-    console.error('❌ PDF export failed:', error);
     throw error;
   }
 };
@@ -284,7 +380,38 @@ export const exportTextData = (
     const blob = new Blob([csvContent], { type: 'text/csv' });
     saveAs(blob, `${filename}.csv`);
   } catch (error) {
-    console.error('Text data export failed:', error);
+    throw error;
+  }
+};
+
+// Export signature data for debugging
+export const exportSignatureData = (
+  signatureElements: SignatureElement[],
+  filename: string = 'signature-overlays'
+): void => {
+  try {
+    const signatureData = signatureElements.map(element => ({
+      id: element.id,
+      position: { x: element.x, y: element.y },
+      dimensions: { width: element.width, height: element.height },
+      rotation: element.rotation,
+      color: element.color,
+      opacity: element.opacity,
+      page: element.pageNumber,
+      timestamp: new Date(element.timestamp).toISOString(),
+      hasImageData: !!element.imageData
+    }));
+
+    const csvContent = [
+      'ID,X,Y,Width,Height,Rotation,Color,Opacity,Page,Timestamp,HasImageData',
+      ...signatureData.map(item => 
+        `"${item.id}",${item.position.x},${item.position.y},${item.dimensions.width},${item.dimensions.height},${item.rotation},"${item.color}",${item.opacity},${item.page},"${item.timestamp}",${item.hasImageData}`
+      )
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    saveAs(blob, `${filename}.csv`);
+  } catch (error) {
     throw error;
   }
 }; 

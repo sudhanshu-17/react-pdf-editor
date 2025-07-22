@@ -3,24 +3,31 @@ import { Document, Page } from 'react-pdf';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { TextElement, ToolbarState } from '@/types/pdf-editor';
+import { TextElement, SignatureElement, ToolbarState } from '@/types/pdf-editor';
 import { DraggableText } from './DraggableText';
+import { DraggableSignature } from './DraggableSignature';
 import { pdfOptions } from '@/lib/pdf-config';
 
 interface PDFViewerProps {
   file: File;
   textElements: TextElement[];
+  signatureElements: SignatureElement[];
   currentPage: number;
   numPages: number;
   toolbarState: ToolbarState;
   selectedTextId: string | null;
+  selectedSignatureId: string | null;
   editingTextId: string | null;
   onPageChange: (page: number) => void;
   onNumPagesChange: (numPages: number) => void;
   onTextElementUpdate: (id: string, updates: Partial<TextElement>) => void;
+  onSignatureElementUpdate: (id: string, updates: Partial<SignatureElement>) => void;
   onTextElementDelete: (id: string) => void;
+  onSignatureElementDelete: (id: string) => void;
   onTextElementSelect: (id: string | null) => void;
+  onSignatureElementSelect: (id: string | null) => void;
   onTextElementAdd: (element: Omit<TextElement, 'id'>) => void;
+  onSignatureElementAdd: (element: Omit<SignatureElement, 'id'>) => void;
   onStartEdit: (id: string) => void;
   onStopEdit: () => void;
 }
@@ -28,17 +35,23 @@ interface PDFViewerProps {
 export const PDFViewer: React.FC<PDFViewerProps> = ({
   file,
   textElements,
+  signatureElements,
   currentPage,
   numPages,
   toolbarState,
   selectedTextId,
+  selectedSignatureId,
   editingTextId,
   onPageChange,
   onNumPagesChange,
   onTextElementUpdate,
+  onSignatureElementUpdate,
   onTextElementDelete,
+  onSignatureElementDelete,
   onTextElementSelect,
+  onSignatureElementSelect,
   onTextElementAdd,
+  onSignatureElementAdd,
   onStartEdit,
   onStopEdit
 }) => {
@@ -49,20 +62,11 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-    console.log('✅ PDF loaded successfully with', numPages, 'pages');
     onNumPagesChange(numPages);
   };
 
   const handleDocumentLoadError = (error: Error) => {
-    console.error('❌ PDF load error:', error);
-    
-    // Additional error context
-    if (error.message.includes('worker')) {
-      console.error('Worker-related error detected. This might be a CORS or worker loading issue.');
-    }
-    if (error.message.includes('CORS')) {
-      console.error('CORS error detected. Using local worker file should resolve this.');
-    }
+    // Silent error handling - could add user notification here if needed
   };
 
   const handlePageLoadSuccess = (page: any) => {
@@ -71,37 +75,22 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   };
 
   const handleCanvasClick = (e: React.MouseEvent) => {
-    // Prevent all default behaviors that could cause scrolling
     e.preventDefault();
     e.stopPropagation();
     e.nativeEvent.preventDefault();
     e.nativeEvent.stopImmediatePropagation();
 
     if (toolbarState.selectedTool === 'text') {
-      // TEXT MODE: Add new text element
       const target = e.currentTarget;
       const rect = target.getBoundingClientRect();
       
-      // Calculate position relative to the PDF page, accounting for scale
       const x = (e.clientX - rect.left) / scale;
       const y = (e.clientY - rect.top) / scale;
 
-      console.log('🎯 Adding text at position:', { 
-        x: Math.round(x), 
-        y: Math.round(y), 
-        scale, 
-        clientX: e.clientX, 
-        clientY: e.clientY,
-        rectLeft: rect.left,
-        rectTop: rect.top,
-        rectWidth: rect.width,
-        rectHeight: rect.height
-      });
-
       const newTextElement: Omit<TextElement, 'id'> = {
         content: 'New Text',
-        x: Math.max(5, Math.round(x)), // Ensure x is not negative and add small margin
-        y: Math.max(5, Math.round(y)), // Ensure y is not negative and add small margin
+        x: Math.max(5, Math.round(x)),
+        y: Math.max(5, Math.round(y)),
         fontSize: toolbarState.fontSize,
         fontFamily: toolbarState.fontFamily,
         color: toolbarState.color,
@@ -110,20 +99,31 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         pageNumber: currentPage
       };
 
-      // Add the text element and immediately start editing it
       onTextElementAdd(newTextElement);
+      setMousePosition(null);
+    } else if (toolbarState.selectedTool === 'signature') {
+      if (selectedSignatureId) {
+        const target = e.currentTarget;
+        const rect = target.getBoundingClientRect();
+        
+        const x = Math.max(5, (e.clientX - rect.left) / scale);
+        const y = Math.max(5, (e.clientY - rect.top) / scale);
 
-      // Clear mouse position preview
+        onSignatureElementUpdate(selectedSignatureId, {
+          x,
+          y,
+          pageNumber: currentPage
+        });
+      }
+
       setMousePosition(null);
     } else if (toolbarState.selectedTool === 'select') {
-      // SELECT MODE: Deselect current text when clicking empty space
-      if (selectedTextId) {
-        console.log('🔄 Deselecting text element by clicking empty space');
+      if (selectedTextId || selectedSignatureId) {
         onTextElementSelect(null);
+        onSignatureElementSelect(null);
       }
     }
 
-    // Force browser to stay in place (prevent any scrolling)
     requestAnimationFrame(() => {
       if (document.activeElement && 'blur' in document.activeElement) {
         (document.activeElement as HTMLElement).blur();
@@ -132,7 +132,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (toolbarState.selectedTool === 'text') {
+    if (toolbarState.selectedTool === 'text' || toolbarState.selectedTool === 'signature') {
       const target = e.currentTarget;
       const rect = target.getBoundingClientRect();
       const x = (e.clientX - rect.left) / scale;
@@ -206,7 +206,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
               style={{ 
                 transform: `scale(${scale})`,
                 transformOrigin: 'center top',
-                isolation: 'isolate' // Create stacking context
+                isolation: 'isolate'
               }}
             >
               <Document
@@ -266,14 +266,15 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                   className={`relative block ${
                     toolbarState.selectedTool === 'text' 
                       ? 'cursor-crosshair' 
+                      : toolbarState.selectedTool === 'signature'
+                      ? 'cursor-copy'
                       : 'cursor-default'
                   }`}
                   onClick={handleCanvasClick}
                   onMouseMove={handleMouseMove}
                   onMouseLeave={handleMouseLeave}
                   onMouseDown={(e) => {
-                    // Only prevent default for text tool to avoid scrolling
-                    if (toolbarState.selectedTool === 'text') {
+                    if (toolbarState.selectedTool === 'text' || toolbarState.selectedTool === 'signature') {
                       e.preventDefault();
                     }
                   }}
@@ -290,13 +291,13 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     renderAnnotationLayer={false}
                   />
                   
-                  {/* Text Overlays Container */}
+                  {/* Overlays Container */}
                   <div 
                     className="absolute inset-0 pointer-events-none"
                     style={{ zIndex: 10 }}
                   >
-                    {/* Text placement preview */}
-                    {toolbarState.selectedTool === 'text' && mousePosition && (
+                    {/* Tool placement preview */}
+                    {mousePosition && (
                       <div
                         className="absolute pointer-events-none z-50"
                         style={{
@@ -305,13 +306,22 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                           transform: 'translate(-2px, -2px)'
                         }}
                       >
-                        <div className="flex items-center gap-1 bg-primary text-white px-2 py-1 rounded-full text-xs shadow-lg opacity-90 animate-bounce">
-                          <span>📝</span>
-                          <span>Click to add text</span>
-                        </div>
+                        {toolbarState.selectedTool === 'text' && (
+                          <div className="flex items-center gap-1 bg-primary text-white px-2 py-1 rounded-full text-xs shadow-lg opacity-90 animate-bounce">
+                            <span>📝</span>
+                            <span>Click to add text</span>
+                          </div>
+                        )}
+                        {toolbarState.selectedTool === 'signature' && selectedSignatureId && (
+                          <div className="flex items-center gap-1 bg-blue-600 text-white px-2 py-1 rounded-full text-xs shadow-lg opacity-90 animate-bounce">
+                            <span>🖋️</span>
+                            <span>Click to place signature</span>
+                          </div>
+                        )}
                       </div>
                     )}
                     
+                    {/* Text Elements */}
                     {textElements.map((textElement) => (
                       <DraggableText
                         key={textElement.id}
@@ -323,7 +333,20 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                         onSelect={onTextElementSelect}
                         onStartEdit={onStartEdit}
                         onStopEdit={onStopEdit}
-                        scale={1} // We handle scaling at the container level
+                        scale={1}
+                      />
+                    ))}
+
+                    {/* Signature Elements */}
+                    {signatureElements.map((signatureElement) => (
+                      <DraggableSignature
+                        key={signatureElement.id}
+                        signatureElement={signatureElement}
+                        isSelected={selectedSignatureId === signatureElement.id}
+                        onUpdate={onSignatureElementUpdate}
+                        onDelete={onSignatureElementDelete}
+                        onSelect={onSignatureElementSelect}
+                        scale={1}
                       />
                     ))}
                   </div>
