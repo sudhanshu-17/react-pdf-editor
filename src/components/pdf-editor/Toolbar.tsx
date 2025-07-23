@@ -1,11 +1,12 @@
 import React from 'react';
-import { MousePointer2, Type, Bold, Italic, Palette, PenTool, Trash2, Copy } from 'lucide-react';
+import { MousePointer2, Type, Bold, Italic, Palette, PenTool, Trash2, Copy, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { ToolbarState, SavedSignature } from '@/types/pdf-editor';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface ToolbarProps {
   toolbarState: ToolbarState;
@@ -63,39 +64,58 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onDeleteSavedSignature,
   onClearSavedSignatures
 }) => {
+  const isMobile = useIsMobile();
+  
   return (
-    <div className="space-y-4">
+    <div className={`space-y-3 sm:space-y-4 ${isMobile ? 'pb-6 pt-1' : ''}`}>
+      {/* Mobile: Close button */}
+      {isMobile && (
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-base font-semibold">Tools</h2>
+          <button
+            className="rounded-full p-2 bg-muted hover:bg-muted-foreground/10 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            onClick={() => {
+              const evt = new CustomEvent('close-toolbar-drawer');
+              window.dispatchEvent(evt);
+            }}
+            aria-label="Close toolbar"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+
       {/* Tool Selection */}
-      <Card className="bg-toolbar-bg border-0 shadow-soft p-4">
+      <Card className="bg-toolbar-bg border-0 shadow-soft p-3 sm:p-4">
         <div className="space-y-3">
-          <Label className="text-sm font-medium">Tools</Label>
-          <div className="grid grid-cols-1 gap-2">
+          {!isMobile && <Label className="text-sm font-medium">Tools</Label>}
+          <div className={`grid ${isMobile ? 'grid-cols-3 gap-2' : 'grid-cols-1 gap-2'}`}>
             <Button
               variant={toolbarState.selectedTool === 'select' ? 'default' : 'outline'}
-              size="sm"
+              size={isMobile ? 'default' : 'sm'}
               onClick={() => onToolbarChange({ selectedTool: 'select' })}
-              className="flex items-center justify-start gap-2 w-full"
+              className={`flex items-center justify-center gap-2 w-full ${isMobile ? 'h-12 flex-col py-2' : ''}`}
             >
-              <MousePointer2 className="w-4 h-4" />
-              Select
+              <MousePointer2 className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+              <span className={isMobile ? 'text-xs' : ''}>{isMobile ? 'Select' : 'Select'}</span>
             </Button>
             <Button
               variant={toolbarState.selectedTool === 'text' ? 'default' : 'outline'}
-              size="sm"
+              size={isMobile ? 'default' : 'sm'}
               onClick={() => onToolbarChange({ selectedTool: 'text' })}
-              className="flex items-center justify-start gap-2 w-full"
+              className={`flex items-center justify-center gap-2 w-full ${isMobile ? 'h-12 flex-col py-2' : ''}`}
             >
-              <Type className="w-4 h-4" />
-              Add Text
+              <Type className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+              <span className={isMobile ? 'text-xs' : ''}>{isMobile ? 'Text' : 'Add Text'}</span>
             </Button>
             <Button
               variant={toolbarState.selectedTool === 'signature' ? 'default' : 'outline'}
-              size="sm"
+              size={isMobile ? 'default' : 'sm'}
               onClick={() => onToolbarChange({ selectedTool: 'signature' })}
-              className="flex items-center justify-start gap-2 w-full"
+              className={`flex items-center justify-center gap-2 w-full ${isMobile ? 'h-12 flex-col py-2' : ''}`}
             >
-              <PenTool className="w-4 h-4" />
-              Add Signature
+              <PenTool className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+              <span className={isMobile ? 'text-xs' : ''}>{isMobile ? 'Sign' : 'Add Signature'}</span>
             </Button>
           </div>
         </div>
@@ -103,7 +123,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Signature Settings - Only show when signature tool is selected */}
       {toolbarState.selectedTool === 'signature' && (
-        <Card className="bg-toolbar-bg border-0 shadow-soft p-4">
+        <Card className="bg-toolbar-bg border-0 shadow-soft p-3 sm:p-4">
           <div className="space-y-3">
             <Label className="text-sm font-medium flex items-center gap-2">
               <Palette className="w-4 h-4" />
@@ -113,12 +133,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             {/* Signature Color */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Signature Color</Label>
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className={`grid ${isMobile ? 'grid-cols-3 gap-3' : 'grid-cols-3 gap-1.5'}`}>
                 {signatureColors.map((color) => (
                   <button
                     key={color.value}
                     className={`
-                      w-full h-8 rounded border-2 transition-all flex items-center justify-center
+                      ${isMobile ? 'w-full h-12' : 'w-full h-8'} rounded border-2 transition-all flex items-center justify-center
                       ${toolbarState.signatureColor === color.value 
                         ? 'border-primary scale-105 shadow-sm ring-1 ring-primary/20' 
                         : 'border-muted hover:border-muted-foreground hover:scale-102'
@@ -129,7 +149,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     title={color.label}
                   >
                     {toolbarState.signatureColor === color.value && (
-                      <div className="w-2 h-2 bg-white rounded-full shadow-sm" />
+                      <div className={`${isMobile ? 'w-3 h-3' : 'w-2 h-2'} bg-white rounded-full shadow-sm`} />
                     )}
                   </button>
                 ))}
@@ -149,7 +169,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   });
                 }}
               >
-                <SelectTrigger className="h-8">
+                <SelectTrigger className={isMobile ? 'h-12' : 'h-8'}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -177,14 +197,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     Clear All
                   </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                <div className={`grid ${isMobile ? 'grid-cols-1 gap-3' : 'grid-cols-2 gap-2'} max-h-48 overflow-y-auto`}>
                   {savedSignatures.map((signature) => (
                     <div
                       key={signature.id}
-                      className="relative group bg-white border border-muted rounded p-2 hover:shadow-sm transition-all cursor-pointer"
+                      className={`relative group bg-white border border-muted rounded ${isMobile ? 'p-3' : 'p-2'} hover:shadow-sm transition-all cursor-pointer`}
                       onClick={() => onUseSavedSignature(signature)}
                     >
-                      <div className="aspect-[2/1] flex items-center justify-center bg-muted/30 rounded mb-1">
+                      <div className={`${isMobile ? 'aspect-[2/1]' : 'aspect-[2/1]'} flex items-center justify-center bg-muted/30 rounded mb-1`}>
                         <img
                           src={signature.imageData}
                           alt={signature.name}
@@ -192,7 +212,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                           style={{ filter: 'drop-shadow(0 0 1px rgba(0,0,0,0.3))' }}
                         />
                       </div>
-                      <div className="text-xs text-center text-muted-foreground truncate">
+                      <div className={`${isMobile ? 'text-sm' : 'text-xs'} text-center text-muted-foreground truncate`}>
                         {signature.name}
                       </div>
                       
@@ -204,9 +224,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                           e.stopPropagation();
                           onDeleteSavedSignature(signature.id);
                         }}
-                        className="absolute -top-1 -right-1 w-5 h-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity bg-destructive hover:bg-destructive/90 text-white rounded-full"
+                        className={`absolute -top-1 -right-1 ${isMobile ? 'w-6 h-6' : 'w-5 h-5'} p-0 opacity-0 group-hover:opacity-100 transition-opacity bg-destructive hover:bg-destructive/90 text-white rounded-full`}
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className={isMobile ? 'w-3 h-3' : 'w-3 h-3'} />
                       </Button>
                     </div>
                   ))}
@@ -214,23 +234,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </div>
             )}
 
-            <div className="text-xs text-muted-foreground bg-blue-50 border border-blue-200 p-3 rounded leading-relaxed">
-              <div className="font-medium text-blue-800 mb-1">💡 Pro Tips:</div>
-              <ul className="space-y-1 text-blue-700">
-                <li>• Draw signature, then click PDF to place</li>
-                <li>• Signatures auto-save for reuse</li>
-                <li>• Drag corners to resize (maintains aspect ratio)</li>
-                <li>• Use green handle to rotate</li>
-                <li>• <kbd className="px-1 bg-blue-100 rounded text-xs">Ctrl+D</kbd> to duplicate</li>
-              </ul>
-            </div>
+            {!isMobile && (
+              <div className="text-xs text-muted-foreground bg-blue-50 border border-blue-200 p-3 rounded leading-relaxed">
+                <div className="font-medium text-blue-800 mb-1">💡 Pro Tips:</div>
+                <ul className="space-y-1 text-blue-700">
+                  <li>• Draw signature, then click PDF to place</li>
+                  <li>• Signatures auto-save for reuse</li>
+                  <li>• Drag corners to resize (maintains aspect ratio)</li>
+                  <li>• Use green handle to rotate</li>
+                  <li>• <kbd className="px-1 bg-blue-100 rounded text-xs">Ctrl+D</kbd> to duplicate</li>
+                </ul>
+              </div>
+            )}
           </div>
         </Card>
       )}
 
       {/* Text Formatting - Only show when text tool is selected */}
       {toolbarState.selectedTool === 'text' && (
-        <Card className="bg-toolbar-bg border-0 shadow-soft p-4">
+        <Card className="bg-toolbar-bg border-0 shadow-soft p-3 sm:p-4">
           <div className="space-y-3">
             <Label className="text-sm font-medium">Text Formatting</Label>
             
@@ -241,7 +263,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 value={toolbarState.fontFamily} 
                 onValueChange={(value) => onToolbarChange({ fontFamily: value })}
               >
-                <SelectTrigger className="h-8">
+                <SelectTrigger className={isMobile ? 'h-12' : 'h-8'}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -261,7 +283,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 value={toolbarState.fontSize.toString()} 
                 onValueChange={(value) => onToolbarChange({ fontSize: parseInt(value) })}
               >
-                <SelectTrigger className="h-8">
+                <SelectTrigger className={isMobile ? 'h-12' : 'h-8'}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -280,23 +302,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <div className="flex gap-2">
                 <Button
                   variant={toolbarState.fontWeight === 'bold' ? 'default' : 'outline'}
-                  size="sm"
+                  size={isMobile ? 'default' : 'sm'}
                   onClick={() => onToolbarChange({ 
                     fontWeight: toolbarState.fontWeight === 'bold' ? 'normal' : 'bold' 
                   })}
-                  className="flex-1"
+                  className={`flex-1 ${isMobile ? 'h-12' : ''}`}
                 >
-                  <Bold className="w-3 h-3" />
+                  <Bold className="w-4 h-4" />
                 </Button>
                 <Button
                   variant={toolbarState.fontStyle === 'italic' ? 'default' : 'outline'}
-                  size="sm"
+                  size={isMobile ? 'default' : 'sm'}
                   onClick={() => onToolbarChange({ 
                     fontStyle: toolbarState.fontStyle === 'italic' ? 'normal' : 'italic' 
                   })}
-                  className="flex-1"
+                  className={`flex-1 ${isMobile ? 'h-12' : ''}`}
                 >
-                  <Italic className="w-3 h-3" />
+                  <Italic className="w-4 h-4" />
                 </Button>
               </div>
             </div>
@@ -304,12 +326,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             {/* Color */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Color</Label>
-              <div className="grid grid-cols-5 gap-1.5">
+              <div className={`grid ${isMobile ? 'grid-cols-5 gap-2' : 'grid-cols-5 gap-1.5'}`}>
                 {colors.map((color) => (
                   <button
                     key={color.value}
                     className={`
-                      w-8 h-8 rounded border-2 transition-all
+                      ${isMobile ? 'w-full h-12' : 'w-8 h-8'} rounded border-2 transition-all
                       ${toolbarState.color === color.value 
                         ? 'border-primary scale-110 shadow-sm' 
                         : 'border-muted hover:border-muted-foreground hover:scale-105'
@@ -326,17 +348,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </Card>
       )}
 
-      {/* Keyboard Shortcuts Help */}
-      <Card className="bg-muted/30 border-0 p-3">
-        <Label className="text-xs font-medium mb-2 block">Keyboard Shortcuts</Label>
-        <div className="text-xs text-muted-foreground space-y-1">
-          <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">V</kbd> Select Tool</div>
-          <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">T</kbd> Text Tool</div>
-          <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">S</kbd> Signature Tool</div>
-          <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">Ctrl+D</kbd> Duplicate Selected</div>
-          <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">Esc</kbd> Deselect All</div>
-        </div>
-      </Card>
+      {/* Keyboard Shortcuts Help - Desktop Only */}
+      {!isMobile && (
+        <Card className="bg-muted/30 border-0 p-3">
+          <Label className="text-xs font-medium mb-2 block">Keyboard Shortcuts</Label>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">V</kbd> Select Tool</div>
+            <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">T</kbd> Text Tool</div>
+            <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">S</kbd> Signature Tool</div>
+            <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">Ctrl+D</kbd> Duplicate Selected</div>
+            <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">Esc</kbd> Deselect All</div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 };

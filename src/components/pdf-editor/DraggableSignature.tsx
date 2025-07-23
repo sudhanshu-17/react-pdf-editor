@@ -3,6 +3,7 @@ import Draggable, { DraggableData, DraggableEvent } from 'react-draggable';
 import { SignatureElement } from '@/types/pdf-editor';
 import { X, Move, RotateCcw, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface DraggableSignatureProps {
   signatureElement: SignatureElement;
@@ -12,18 +13,6 @@ interface DraggableSignatureProps {
   onSelect: (id: string) => void;
   scale: number;
 }
-
-// Throttle function for performance optimization
-const throttle = (func: Function, limit: number) => {
-  let inThrottle: boolean;
-  return function(this: any, ...args: any[]) {
-    if (!inThrottle) {
-      func.apply(this, args);
-      inThrottle = true;
-      setTimeout(() => inThrottle = false, limit);
-    }
-  }
-};
 
 export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
   signatureElement,
@@ -37,62 +26,32 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
   const [isResizing, setIsResizing] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Throttled drag handler for performance optimization
-  const throttledDragHandler = useMemo(
-    () => throttle((data: DraggableData) => {
-      onUpdate(signatureElement.id, {
-        x: data.x / scale,
-        y: data.y / scale
-      });
-    }, 16), // ~60fps throttling
-    [signatureElement.id, scale, onUpdate]
-  );
-
-  const handleDrag = useCallback((e: DraggableEvent, data: DraggableData) => {
-    e.preventDefault();
-    throttledDragHandler(data);
-  }, [throttledDragHandler]);
-
-  const handleStart = useCallback((e: DraggableEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-    onSelect(signatureElement.id);
-  }, [signatureElement.id, onSelect]);
-
-  const handleStop = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.nativeEvent.stopImmediatePropagation();
-    onSelect(signatureElement.id);
-  }, [signatureElement.id, onSelect]);
-
-  const handleDelete = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onDelete(signatureElement.id);
-  }, [signatureElement.id, onDelete]);
+  const isMobile = useIsMobile();
 
   // Resize handlers
-  const handleResizeStart = useCallback((e: React.MouseEvent, corner: string) => {
+  const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent, corner: string) => {
     e.preventDefault();
     e.stopPropagation();
     setIsResizing(true);
 
-    const startX = e.clientX;
-    const startY = e.clientY;
+    // Handle both mouse and touch events
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    const startX = clientX;
+    const startY = clientY;
     const startWidth = signatureElement.width;
     const startHeight = signatureElement.height;
     const aspectRatio = startWidth / startHeight;
 
-    const handleMouseMove = (moveE: MouseEvent) => {
-      const deltaX = (moveE.clientX - startX) / scale;
-      const deltaY = (moveE.clientY - startY) / scale;
+    const handleMouseMove = (moveE: MouseEvent | TouchEvent) => {
+      moveE.preventDefault();
+
+      const moveClientX = 'touches' in moveE ? moveE.touches[0].clientX : moveE.clientX;
+      const moveClientY = 'touches' in moveE ? moveE.touches[0].clientY : moveE.clientY;
+
+      const deltaX = (moveClientX - startX) / scale;
+      const deltaY = (moveClientY - startY) / scale;
 
       let newWidth = startWidth;
       let newHeight = startHeight;
@@ -121,14 +80,19 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
       setIsResizing(false);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleMouseMove);
+      document.removeEventListener('touchend', handleMouseUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
+    // Add both mouse and touch listeners
+    document.addEventListener('mousemove', handleMouseMove, { passive: false });
     document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('touchmove', handleMouseMove, { passive: false });
+    document.addEventListener('touchend', handleMouseUp);
   }, [signatureElement.id, signatureElement.width, signatureElement.height, scale, onUpdate]);
 
-  // MUCH SIMPLER rotation handler
-  const handleRotateStart = useCallback((e: React.MouseEvent) => {
+  // Rotation handler
+  const handleRotateStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsRotating(true);
@@ -138,14 +102,23 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
 
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
-    
-    // Get initial angle between center and starting mouse position
-    const startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
+
+    // Handle both mouse and touch events
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    // Get initial angle between center and starting position
+    const startAngle = Math.atan2(clientY - centerY, clientX - centerX) * (180 / Math.PI);
     const startRotation = signatureElement.rotation || 0;
 
-    const handleMouseMove = (moveE: MouseEvent) => {
+    const handleMouseMove = (moveE: MouseEvent | TouchEvent) => {
+      moveE.preventDefault();
+
+      const moveClientX = 'touches' in moveE ? moveE.touches[0].clientX : moveE.clientX;
+      const moveClientY = 'touches' in moveE ? moveE.touches[0].clientY : moveE.clientY;
+
       // Calculate current angle
-      const currentAngle = Math.atan2(moveE.clientY - centerY, moveE.clientX - centerX) * (180 / Math.PI);
+      const currentAngle = Math.atan2(moveClientY - centerY, moveClientX - centerX) * (180 / Math.PI);
       
       // Calculate the difference
       let angleDiff = currentAngle - startAngle;
@@ -155,12 +128,12 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
       
       // Normalize to 0-360 range
       newRotation = ((newRotation % 360) + 360) % 360;
-      
-      // Snap to 15-degree increments when shift is held
-      if (moveE.shiftKey) {
+
+      // Snap to 15-degree increments when shift is held (desktop only)
+      if ('shiftKey' in moveE && moveE.shiftKey) {
         newRotation = Math.round(newRotation / 15) * 15;
       }
-      
+
       onUpdate(signatureElement.id, { rotation: Math.round(newRotation) });
     };
 
@@ -168,19 +141,45 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
       setIsRotating(false);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleMouseMove);
+      document.removeEventListener('touchend', handleMouseUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
+    // Add both mouse and touch listeners
+    document.addEventListener('mousemove', handleMouseMove, { passive: false });
     document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('touchmove', handleMouseMove, { passive: false });
+    document.addEventListener('touchend', handleMouseUp);
   }, [signatureElement.id, signatureElement.rotation, onUpdate]);
+
+  // Draggable event handlers
+  const handleDrag = useCallback((e: DraggableEvent, data: DraggableData) => {
+    onUpdate(signatureElement.id, {
+      x: data.x / scale,
+      y: data.y / scale
+    });
+  }, [signatureElement.id, scale, onUpdate]);
+
+  const handleStart = useCallback((e: DraggableEvent) => {
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+    } catch (error) {
+      // Ignore passive event listener errors
+    }
+    setIsDragging(true);
+    onSelect(signatureElement.id);
+  }, [signatureElement.id, onSelect]);
+
+  const handleStop = useCallback(() => {
+    setIsDragging(false);
+  }, []);
 
   // Calculate scaled dimensions and positioning
   const scaledWidth = Math.max(20, signatureElement.width * scale);
   const scaledHeight = Math.max(10, signatureElement.height * scale);
   const scaledX = signatureElement.x * scale;
   const scaledY = signatureElement.y * scale;
-
-  // Get rotation value (ensure it's a number)
   const rotationDegrees = typeof signatureElement.rotation === 'number' ? signatureElement.rotation : 0;
 
   return (
@@ -207,7 +206,6 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
           }
           ${isDragging || isResizing || isRotating ? 'shadow-large cursor-grabbing z-30' : ''}
         `}
-        onClick={handleClick}
         style={{ 
           width: scaledWidth,
           height: scaledHeight,
@@ -234,56 +232,63 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
         {/* Control Handles - only visible when selected */}
         {isSelected && (
           <>
-            {/* Main control bar */}
-            <div className="absolute -top-12 left-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-auto">
-              <div className="flex items-center gap-1 bg-blue-600 text-white px-2 py-1 rounded text-xs shadow-lg">
-                <Move className="w-3 h-3 signature-drag-handle cursor-grab" />
-                <span className="text-xs">Signature</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleDelete}
-                  className="h-4 w-4 p-0 text-white hover:bg-white/20 hover:text-white ml-1"
-                >
-                  <X className="w-3 h-3" />
-                </Button>
-              </div>
-            </div>
-
             {/* Resize handles */}
             {['nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'].map((corner) => (
               <div
                 key={corner}
-                className={`absolute w-3 h-3 bg-blue-500 border-2 border-white rounded-full cursor-${corner === 'n' || corner === 's' ? 'ns' : corner === 'e' || corner === 'w' ? 'ew' : corner.includes('n') ? (corner.includes('w') ? 'nw' : 'ne') : (corner.includes('w') ? 'sw' : 'se')}-resize hover:bg-blue-600 transition-colors opacity-80 hover:opacity-100`}
+                className={`absolute ${isMobile ? 'w-5 h-5' : 'w-3 h-3'} bg-blue-500 border-2 border-white rounded-full cursor-${corner === 'n' || corner === 's' ? 'ns' : corner === 'e' || corner === 'w' ? 'ew' : corner.includes('n') ? (corner.includes('w') ? 'nw' : 'ne') : (corner.includes('w') ? 'sw' : 'se')}-resize hover:bg-blue-600 transition-colors opacity-80 hover:opacity-100`}
                 style={{
-                  top: corner.includes('n') ? '-6px' : corner.includes('s') ? 'calc(100% - 6px)' : '50%',
-                  left: corner.includes('w') ? '-6px' : corner.includes('e') ? 'calc(100% - 6px)' : '50%',
+                  top: corner.includes('n') ? (isMobile ? '-10px' : '-6px') : corner.includes('s') ? (isMobile ? 'calc(100% - 10px)' : 'calc(100% - 6px)') : '50%',
+                  left: corner.includes('w') ? (isMobile ? '-10px' : '-6px') : corner.includes('e') ? (isMobile ? 'calc(100% - 10px)' : 'calc(100% - 6px)') : '50%',
                   transform: corner.length === 1 ? 'translate(-50%, -50%)' : undefined
                 }}
                 onMouseDown={(e) => handleResizeStart(e, corner)}
+                onTouchStart={(e) => handleResizeStart(e, corner)}
               />
             ))}
 
             {/* Rotation handle */}
             <div
-              className="absolute w-8 h-8 bg-green-500 border-3 border-white rounded-full cursor-grab hover:bg-green-600 transition-all flex items-center justify-center opacity-90 hover:opacity-100 shadow-lg hover:scale-110"
+              className={`absolute ${isMobile ? 'w-10 h-10' : 'w-8 h-8'} bg-green-500 border-3 border-white rounded-full cursor-grab hover:bg-green-600 transition-all flex items-center justify-center opacity-90 hover:opacity-100 shadow-lg hover:scale-110`}
               style={{
-                top: '-30px',
+                top: isMobile ? '-35px' : '-30px',
                 left: '50%',
                 transform: 'translateX(-50%)',
                 zIndex: 100
               }}
               onMouseDown={handleRotateStart}
-              title="Drag to rotate signature"
+              onTouchStart={handleRotateStart}
             >
-              <RotateCcw className="w-4 h-4 text-white" />
+              <RotateCcw className={`${isMobile ? 'w-5 h-5' : 'w-4 h-4'} text-white`} />
             </div>
 
-            {/* Selection indicator */}
-            <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-sm pointer-events-none" />
+            {/* Delete button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDelete(signatureElement.id);
+              }}
+              className={`
+                absolute -top-2 -right-2 
+                ${isMobile ? 'w-8 h-8' : 'w-6 h-6'} p-0 
+                opacity-0 group-hover:opacity-100 transition-opacity 
+                bg-destructive hover:bg-destructive/90 text-white rounded-full
+              `}
+            >
+              <X className={`${isMobile ? 'w-5 h-5' : 'w-4 h-4'}`} />
+            </Button>
 
             {/* Size and rotation info */}
-            <div className="absolute -bottom-8 left-0 bg-black/80 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+            <div className={`
+              absolute -bottom-8 left-0 
+              bg-black/80 text-white px-2 py-1 rounded 
+              ${isMobile ? 'text-sm' : 'text-xs'} 
+              opacity-0 group-hover:opacity-100 transition-opacity 
+              pointer-events-none whitespace-nowrap
+            `}>
               {Math.round(signatureElement.width)}×{Math.round(signatureElement.height)}px • {Math.round(rotationDegrees)}°
               {isRotating && <span className="text-green-300 ml-2">🔄 Rotating</span>}
             </div>

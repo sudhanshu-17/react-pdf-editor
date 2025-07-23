@@ -3,6 +3,7 @@ import Draggable, { DraggableData, DraggableEvent } from 'react-draggable';
 import { TextElement } from '@/types/pdf-editor';
 import { X, Move } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface DraggableTextProps {
   textElement: TextElement;
@@ -30,11 +31,16 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   // Optimized drag handler with useCallback
   const handleDrag = useCallback((e: DraggableEvent, data: DraggableData) => {
-    // Prevent page scrolling during drag
-    e.preventDefault();
+    // Only prevent default if it's not a passive event
+    try {
+      e.preventDefault();
+    } catch (error) {
+      // Ignore passive event listener errors
+    }
     
     onUpdate(textElement.id, {
       x: data.x / scale,
@@ -43,9 +49,13 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
   }, [textElement.id, scale, onUpdate]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.nativeEvent.stopImmediatePropagation();
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+      e.nativeEvent.stopImmediatePropagation();
+    } catch (error) {
+      // Ignore passive event listener errors
+    }
     onStartEdit(textElement.id);
   }, [textElement.id, onStartEdit]);
 
@@ -63,8 +73,12 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
   }, [onStopEdit]);
 
   const handleStart = useCallback((e: DraggableEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+    } catch (error) {
+      // Ignore passive event listener errors
+    }
     setIsDragging(true);
     onSelect(textElement.id);
   }, [textElement.id, onSelect]);
@@ -74,9 +88,13 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
   }, []);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.nativeEvent.stopImmediatePropagation();
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+      e.nativeEvent.stopImmediatePropagation();
+    } catch (error) {
+      // Ignore passive event listener errors
+    }
     onSelect(textElement.id);
   }, [textElement.id, onSelect]);
 
@@ -125,9 +143,9 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
       >
         {/* Drag Handle - only visible when selected */}
         {isSelected && !isEditing && (
-          <div className="drag-handle absolute -top-8 -left-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <div className="flex items-center gap-1 bg-primary text-white px-2 py-1 rounded text-xs shadow-md">
-              <Move className="w-3 h-3 cursor-grab" />
+          <div className={`drag-handle absolute ${isMobile ? '-top-12 -left-3' : '-top-8 -left-2'} opacity-0 group-hover:opacity-100 transition-opacity duration-200`}>
+            <div className={`flex items-center gap-1 bg-primary text-white px-2 py-1 rounded ${isMobile ? 'text-sm' : 'text-xs'} shadow-md`}>
+              <Move className={`${isMobile ? 'w-4 h-4' : 'w-3 h-3'} cursor-grab`} />
               <Button
                 variant="ghost"
                 size="sm"
@@ -136,9 +154,9 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
                   e.stopPropagation();
                   onDelete(textElement.id);
                 }}
-                className="h-4 w-4 p-0 text-white hover:bg-white/20 hover:text-white"
+                className={`${isMobile ? 'h-6 w-6' : 'h-4 w-4'} p-0 text-white hover:bg-white/20 hover:text-white`}
               >
-                <X className="w-3 h-3" />
+                <X className={`${isMobile ? 'w-4 h-4' : 'w-3 h-3'}`} />
               </Button>
             </div>
           </div>
@@ -154,8 +172,11 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
             onKeyDown={handleKeyDown}
             onBlur={onStopEdit}
             autoFocus
-            style={textStyle}
-            className="bg-transparent border-none outline-none min-w-[100px] ring-2 ring-blue-500/70 rounded px-1"
+            style={{
+              ...textStyle,
+              fontSize: isMobile ? `${Math.max(textElement.fontSize * scale, 16)}px` : textStyle.fontSize
+            }}
+            className={`bg-transparent border-none outline-none ${isMobile ? 'min-w-[120px]' : 'min-w-[100px]'} ring-2 ring-blue-500/70 rounded px-1 ${isMobile ? 'py-1' : ''}`}
           />
         ) : (
           <div
@@ -163,7 +184,7 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
             style={textStyle}
             onDoubleClick={handleDoubleClick}
             className={`
-              min-w-[20px] min-h-[20px] whitespace-nowrap px-1 py-0.5 rounded
+              ${isMobile ? 'min-w-[30px] min-h-[30px]' : 'min-w-[20px] min-h-[20px]'} whitespace-nowrap px-1 py-0.5 rounded
               transition-all duration-150
               ${isSelected 
                 ? 'bg-primary/10 ring-1 ring-primary/50' 
@@ -172,7 +193,7 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
               cursor-${isEditing ? 'text' : 'move'}
             `}
           >
-            {textElement.content || 'Double click to edit'}
+            {textElement.content || (isMobile ? 'Tap to edit' : 'Double click to edit')}
           </div>
         )}
       </div>

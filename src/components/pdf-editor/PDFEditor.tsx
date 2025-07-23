@@ -17,6 +17,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { exportAsPDF, exportAsImage, exportProjectData, exportTextData } from '@/lib/pdf-export';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Drawer, DrawerContent } from '@/components/ui/drawer';
+import { Menu } from 'lucide-react';
 
 // Storage keys for localStorage
 const SAVED_SIGNATURES_KEY = 'pdf-editor-saved-signatures';
@@ -60,6 +63,8 @@ export const PDFEditor: React.FC = () => {
   });
 
   const { toast } = useToast();
+  const isMobile = useIsMobile();
+  const [toolbarOpen, setToolbarOpen] = useState(false);
 
   // Save signatures to localStorage whenever savedSignatures changes
   useEffect(() => {
@@ -637,23 +642,29 @@ export const PDFEditor: React.FC = () => {
     return () => window.document.removeEventListener('keydown', handleKeyDown);
   }, [editingTextId, selectedTextId, selectedSignatureId, showSignatureCanvas, handleDuplicateElement]);
 
+  React.useEffect(() => {
+    if (!isMobile) return;
+    const handler = () => setToolbarOpen(false);
+    window.addEventListener('close-toolbar-drawer', handler);
+    return () => window.removeEventListener('close-toolbar-drawer', handler);
+  }, [isMobile]);
+
   if (!document) {
     return (
       <div className="min-h-screen bg-background">
         {/* Header */}
         <div className="bg-toolbar-bg border-b shadow-soft">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center gap-3">
-              <FileText className="w-8 h-8 text-primary" />
-              <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text">
+          <div className="container mx-auto px-2 sm:px-4 py-3 sm:py-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
+              <h1 className="text-lg sm:text-2xl font-bold bg-gradient-primary bg-clip-text">
                 InkAgent PDF Editor Pro
               </h1>
             </div>
           </div>
         </div>
-
         {/* Upload Area */}
-        <div className="container mx-auto px-4 py-8">
+        <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
           <PDFUpload onFileUpload={handleFileUpload} />
         </div>
       </div>
@@ -664,28 +675,26 @@ export const PDFEditor: React.FC = () => {
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <div className="bg-toolbar-bg border-b shadow-soft">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <FileText className="w-6 h-6 text-primary" />
-              <h1 className="text-lg font-bold">InkAgent PDF Editor Pro</h1>
-              <span className="text-sm text-muted-foreground">
+        <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-primary flex-shrink-0" />
+              <h1 className="text-sm sm:text-lg font-bold truncate">InkAgent PDF Editor Pro</h1>
+              <span className="text-xs sm:text-sm text-muted-foreground truncate max-w-[120px] sm:max-w-none">
                 {document.name}
               </span>
             </div>
-            
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleSave}>
-                <Save className="w-4 h-4 mr-2" />
-                Save
+            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+              <Button variant="outline" size={isMobile ? "sm" : "sm"} onClick={handleSave} className={isMobile ? "px-2" : ""}>
+                <Save className="w-4 h-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Save</span>
               </Button>
-              
               {/* Export Dropdown Menu */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm">
-                    <Download className="w-4 h-4 mr-2" />
-                    Export
+                  <Button size={isMobile ? "sm" : "sm"} className={isMobile ? "px-2" : ""}>
+                    <Download className="w-4 h-4 mr-1 sm:mr-2" />
+                    <span className="hidden sm:inline">Export</span>
                     <ChevronDown className="w-3 h-3 ml-1" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -695,21 +704,17 @@ export const PDFEditor: React.FC = () => {
                     Export as PDF
                     <span className="ml-auto text-xs text-muted-foreground">✨ New!</span>
                   </DropdownMenuItem>
-                  
                   <DropdownMenuItem onClick={handleExportImage}>
                     <Image className="w-4 h-4 mr-2" />
                     Export as PNG Image
                     <span className="ml-auto text-xs text-muted-foreground">Alternative</span>
                   </DropdownMenuItem>
-                  
                   <DropdownMenuSeparator />
-                  
                   <DropdownMenuItem onClick={handleExportProject}>
                     <FileCode className="w-4 h-4 mr-2" />
                     Save Project Data
                     <span className="ml-auto text-xs text-muted-foreground">JSON</span>
                   </DropdownMenuItem>
-                  
                   <DropdownMenuItem onClick={handleExportTextData}>
                     <FileText className="w-4 h-4 mr-2" />
                     Export Text Data
@@ -717,29 +722,56 @@ export const PDFEditor: React.FC = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {/* Mobile: Toolbar Drawer Button */}
+              {isMobile && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="px-2"
+                  onClick={() => setToolbarOpen(true)}
+                  aria-label="Open toolbar"
+                >
+                  <Menu className="w-4 h-4" />
+                </Button>
+              )}
             </div>
           </div>
         </div>
       </div>
-
       {/* Main Content */}
-      <div className="flex-1 flex">
-        {/* Sidebar */}
-        <div className="w-80 bg-sidebar-bg border-r shadow-soft flex flex-col max-h-[calc(100vh-73px)]">
-          <div className="flex-1 overflow-y-auto p-4">
-            <Toolbar 
-              toolbarState={toolbarState}
-              onToolbarChange={handleToolbarChange}
-              savedSignatures={savedSignatures}
-              onUseSavedSignature={handleUseSavedSignature}
-              onDeleteSavedSignature={handleDeleteSavedSignature}
-              onClearSavedSignatures={handleClearSavedSignatures}
-            />
+      <div className={`flex-1 flex ${isMobile ? 'flex-col' : ''} min-h-0`}>
+        {/* Sidebar or Drawer */}
+        {isMobile ? (
+          <Drawer open={toolbarOpen} onOpenChange={setToolbarOpen}>
+            <DrawerContent className="max-h-[85vh]">
+              <div className="p-4 overflow-y-auto">
+                <Toolbar
+                  toolbarState={toolbarState}
+                  onToolbarChange={handleToolbarChange}
+                  savedSignatures={savedSignatures}
+                  onUseSavedSignature={handleUseSavedSignature}
+                  onDeleteSavedSignature={handleDeleteSavedSignature}
+                  onClearSavedSignatures={handleClearSavedSignatures}
+                />
+              </div>
+            </DrawerContent>
+          </Drawer>
+        ) : (
+          <div className="w-80 bg-sidebar-bg border-r shadow-soft flex flex-col max-h-[calc(100vh-73px)]">
+            <div className="flex-1 overflow-y-auto p-4">
+              <Toolbar
+                toolbarState={toolbarState}
+                onToolbarChange={handleToolbarChange}
+                savedSignatures={savedSignatures}
+                onUseSavedSignature={handleUseSavedSignature}
+                onDeleteSavedSignature={handleDeleteSavedSignature}
+                onClearSavedSignatures={handleClearSavedSignatures}
+              />
+            </div>
           </div>
-        </div>
-
+        )}
         {/* PDF Viewer */}
-        <div className="flex-1">
+        <div className={`flex-1 ${isMobile ? 'w-full min-w-0 min-h-0' : ''}`}>
           <PDFViewer
             file={document.file}
             textElements={currentPageTexts}
@@ -765,13 +797,12 @@ export const PDFEditor: React.FC = () => {
           />
         </div>
       </div>
-
       {/* Signature Canvas Modal */}
       <Dialog open={showSignatureCanvas} onOpenChange={setShowSignatureCanvas}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className={`${isMobile ? 'max-w-[95vw] max-h-[90vh] p-2' : 'max-w-3xl'}`}>
           <SignatureCanvasComponent
-            width={toolbarState.signatureCanvasWidth}
-            height={toolbarState.signatureCanvasHeight}
+            width={isMobile ? Math.min(toolbarState.signatureCanvasWidth, 300) : toolbarState.signatureCanvasWidth}
+            height={isMobile ? Math.min(toolbarState.signatureCanvasHeight, 150) : toolbarState.signatureCanvasHeight}
             color={toolbarState.signatureColor}
             onSave={handleSignatureSave}
             onCancel={handleSignatureCancel}
