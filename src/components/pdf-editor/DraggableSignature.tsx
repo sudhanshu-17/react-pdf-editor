@@ -201,10 +201,10 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
         className={`
           absolute group transition-all duration-200 will-change-transform
           ${isSelected 
-            ? 'ring-2 ring-blue-500/70 z-20 shadow-lg' 
-            : 'z-10 hover:shadow-sm'
+            ? 'ring-2 ring-blue-500/70 z-[1010] shadow-lg'
+            : 'z-[1005] hover:shadow-sm'
           }
-          ${isDragging || isResizing || isRotating ? 'shadow-large cursor-grabbing z-30' : ''}
+          ${isDragging || isResizing || isRotating ? 'shadow-large cursor-grabbing z-[1020]' : ''}
         `}
         style={{ 
           width: scaledWidth,

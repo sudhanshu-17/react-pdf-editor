@@ -137,11 +137,35 @@ All colors MUST be HSL.
   will-change: transform;
   backface-visibility: hidden;
   transform-style: preserve-3d;
+  z-index: 1001 !important;
+  position: relative !important;
 }
 
 [data-text-overlay="true"] {
   will-change: transform;
   backface-visibility: hidden;
+  z-index: 1001 !important;
+  position: relative !important;
+  width: fit-content !important;
+  max-width: none !important;
+}
+
+/* Specific styling for text input when editing */
+[data-text-overlay="true"] input[type="text"] {
+  width: auto !important;
+  max-width: 200px !important;
+  min-width: 100px !important;
+  display: inline-block !important;
+  box-sizing: border-box !important;
+  flex: none !important;
+}
+
+/* Mobile specific input styling */
+@media (max-width: 768px) {
+  [data-text-overlay="true"] input[type="text"] {
+    max-width: 250px !important;
+    min-width: 120px !important;
+  }
 }
 
 /* PDF viewer optimizations */
@@ -159,6 +183,82 @@ All colors MUST be HSL.
   display: block;
   max-width: 100%;
   height: auto;
+}
+
+/* PDF form field styling */
+.react-pdf__Page .annotationLayer input,
+.react-pdf__Page .annotationLayer textarea,
+.react-pdf__Page .annotationLayer select {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid #ccc !important;
+  border-radius: 2px !important;
+  padding: 2px 4px !important;
+  font-size: 12px !important;
+  font-family: inherit !important;
+  z-index: 100 !important;
+  pointer-events: auto !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.react-pdf__Page .annotationLayer input:focus,
+.react-pdf__Page .annotationLayer textarea:focus,
+.react-pdf__Page .annotationLayer select:focus {
+  outline: 2px solid #007acc !important;
+  outline-offset: 1px !important;
+  background: rgba(255, 255, 255, 1) !important;
+}
+
+/* Mobile-specific PDF viewer improvements */
+@media (max-width: 768px) {
+  /* Improve PDF page scaling on mobile */
+  .react-pdf__Page {
+    max-width: 100% !important;
+  }
+  
+  .react-pdf__Page canvas {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  
+  /* Ensure PDF container doesn't overflow */
+  .react-pdf__Document {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .react-pdf__Page .annotationLayer input,
+  .react-pdf__Page .annotationLayer textarea,
+  .react-pdf__Page .annotationLayer select {
+    font-size: 14px !important;
+    padding: 4px 6px !important;
+    min-height: 32px !important;
+    border-radius: 4px !important;
+    border: 2px solid #ccc !important;
+    /* Remove width constraints that interfere with positioning */
+    box-sizing: border-box !important;
+  }
+  
+  .react-pdf__Page .annotationLayer input:focus,
+  .react-pdf__Page .annotationLayer textarea:focus,
+  .react-pdf__Page .annotationLayer select:focus {
+    border: 2px solid #007acc !important;
+    outline: none !important;
+    transform: scale(1.02) !important;
+    transition: all 0.2s ease !important;
+  }
+
+  /* Let annotation layer handle its own positioning - don't constrain */
+  .react-pdf__Page .annotationLayer {
+    /* Remove overflow hidden that was breaking positioning */
+  }
+  
+  /* Remove widget constraints that were causing displacement */
+}
+
+.react-pdf__Page .annotationLayer {
+  pointer-events: auto !important;
+  z-index: 100 !important;
 }
 
 /* Signature modal styling */

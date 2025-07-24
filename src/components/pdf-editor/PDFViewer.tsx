@@ -1,5 +1,6 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Document, Page } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -7,7 +8,6 @@ import { TextElement, SignatureElement, ToolbarState } from '@/types/pdf-editor'
 import { DraggableText } from './DraggableText';
 import { DraggableSignature } from './DraggableSignature';
 import { pdfOptions } from '@/lib/pdf-config';
-import { useIsMobile } from '@/hooks/use-mobile';
 
 interface PDFViewerProps {
   file: File;
@@ -61,7 +61,23 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const [pageHeight, setPageHeight] = useState(0);
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
+
+  // Handle mobile viewport adjustments for interactive PDFs
+  useEffect(() => {
+    const handleMobileFormFields = () => {
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        // Prevent horizontal scroll on mobile
+        document.body.style.overflowX = 'hidden';
+        
+        return () => {
+          document.body.style.overflowX = '';
+        };
+      }
+    };
+
+    const cleanup = handleMobileFormFields();
+    return cleanup;
+  }, []);
 
   const handleDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     onNumPagesChange(numPages);
@@ -76,28 +92,49 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     setPageHeight(page.height);
   };
 
-  const handleCanvasClick = (e: React.MouseEvent | React.TouchEvent) => {
-    try {
+  const handleCanvasClick = (e: React.MouseEvent) => {
+    // Check if the click target is a PDF form field or annotation
+    const target = e.target as HTMLElement;
+    
+    // Check if this is one of our custom text or signature elements
+    const isCustomElement = target.closest('[data-text-overlay="true"]') || 
+                           target.closest('[data-signature-overlay="true"]') ||
+                           target.hasAttribute('data-text-overlay') ||
+                           target.hasAttribute('data-signature-overlay');
+    
+    // If clicking on our custom elements, let them handle their own events completely
+    if (isCustomElement) {
+      return;
+    }
+    
+    // More precise detection - only target actual PDF form input elements
+    const isFormField = target.matches('input, textarea, select, button') ||
+                       target.closest('input, textarea, select, button') ||
+                       // Check for PDF.js specific form elements
+                       target.classList.contains('textWidgetAnnotation') ||
+                       target.classList.contains('choiceWidgetAnnotation') ||
+                       target.classList.contains('buttonWidgetAnnotation') ||
+                       target.closest('.textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation');
+    
+    // If clicking on a PDF form field, don't interfere
+    if (isFormField) {
+      return;
+    }
+
+    // Only prevent default and stop propagation for our custom tools
+    if (toolbarState.selectedTool !== 'select') {
       e.preventDefault();
       e.stopPropagation();
-      if ('nativeEvent' in e) {
-        e.nativeEvent.preventDefault();
-        e.nativeEvent.stopImmediatePropagation();
-      }
-    } catch (error) {
-      // Ignore passive event listener errors
+      e.nativeEvent.preventDefault();
+      e.nativeEvent.stopImmediatePropagation();
     }
 
     if (toolbarState.selectedTool === 'text') {
       const target = e.currentTarget;
       const rect = target.getBoundingClientRect();
       
-      // Handle both mouse and touch events
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      
-      const x = (clientX - rect.left) / scale;
-      const y = (clientY - rect.top) / scale;
+      const x = (e.clientX - rect.left) / scale;
+      const y = (e.clientY - rect.top) / scale;
 
       const newTextElement: Omit<TextElement, 'id'> = {
         content: 'New Text',
@@ -118,12 +155,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         const target = e.currentTarget;
         const rect = target.getBoundingClientRect();
         
-        // Handle both mouse and touch events
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-        
-        const x = Math.max(5, (clientX - rect.left) / scale);
-        const y = Math.max(5, (clientY - rect.top) / scale);
+        const x = Math.max(5, (e.clientX - rect.left) / scale);
+        const y = Math.max(5, (e.clientY - rect.top) / scale);
 
         onSignatureElementUpdate(selectedSignatureId, {
           x,
@@ -140,33 +173,31 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       }
     }
 
-    requestAnimationFrame(() => {
-      if (document.activeElement && 'blur' in document.activeElement) {
-        (document.activeElement as HTMLElement).blur();
-      }
-    });
+    // Only blur active element if we're not dealing with form fields and using custom tools
+    if (!isFormField && toolbarState.selectedTool !== 'select') {
+      requestAnimationFrame(() => {
+        if (document.activeElement && 'blur' in document.activeElement) {
+          const activeElement = document.activeElement as HTMLElement;
+          // Don't blur if it's a form field
+          if (!activeElement.matches('input, textarea, select, button')) {
+            activeElement.blur();
+          }
+        }
+      });
+    }
   };
 
-  const handleMouseMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (toolbarState.selectedTool === 'text' || toolbarState.selectedTool === 'signature') {
       const target = e.currentTarget;
       const rect = target.getBoundingClientRect();
-      
-      // Handle both mouse and touch events
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      
-      const x = (clientX - rect.left) / scale;
-      const y = (clientY - rect.top) / scale;
+      const x = (e.clientX - rect.left) / scale;
+      const y = (e.clientY - rect.top) / scale;
       setMousePosition({ x, y });
     }
   }, [toolbarState.selectedTool, scale]);
 
   const handleMouseLeave = useCallback(() => {
-    setMousePosition(null);
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
     setMousePosition(null);
   }, []);
 
@@ -178,71 +209,61 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     <Card className="flex-1 bg-canvas-bg border-0 shadow-soft overflow-hidden">
       <div className="h-full flex flex-col">
         {/* Controls Bar */}
-        <div className={`bg-toolbar-bg border-b ${isMobile ? 'p-2' : 'p-3'} flex items-center justify-between ${isMobile ? 'gap-1' : 'gap-2'}`}>
-          <div className={`flex items-center ${isMobile ? 'gap-1' : 'gap-2'}`}>
+        <div className="bg-toolbar-bg border-b p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              size={isMobile ? 'default' : 'sm'}
+              size="sm"
               onClick={() => onPageChange(Math.max(1, currentPage - 1))}
               disabled={currentPage <= 1}
-              className={isMobile ? 'h-10 w-10 p-0' : ''}
             >
-              <ChevronLeft className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+              <ChevronLeft className="w-4 h-4" />
             </Button>
-            <span className={`text-sm px-2 ${isMobile ? 'text-sm min-w-[60px] text-center' : 'min-w-[60px] text-center'}`}>
+            
+            <span className="text-sm px-3">
               {currentPage} / {numPages}
             </span>
+            
             <Button
               variant="outline"
-              size={isMobile ? 'default' : 'sm'}
+              size="sm"
               onClick={() => onPageChange(Math.min(numPages, currentPage + 1))}
               disabled={currentPage >= numPages}
-              className={isMobile ? 'h-10 w-10 p-0' : ''}
             >
-              <ChevronRight className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+              <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
-          <div className={`flex items-center ${isMobile ? 'gap-1' : 'gap-2'}`}>
-            <Button 
-              variant="outline" 
-              size={isMobile ? 'default' : 'sm'} 
-              onClick={zoomOut} 
-              className={isMobile ? 'h-10 w-10 p-0' : ''}
-            >
-              <ZoomOut className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={zoomOut}>
+              <ZoomOut className="w-4 h-4" />
             </Button>
-            <span className={`text-sm px-2 ${isMobile ? 'text-sm min-w-[50px] text-center' : 'min-w-[60px] text-center'}`}>
+            
+            <span className="text-sm px-3 min-w-[60px] text-center">
               {Math.round(scale * 100)}%
             </span>
-            <Button 
-              variant="outline" 
-              size={isMobile ? 'default' : 'sm'} 
-              onClick={zoomIn} 
-              className={isMobile ? 'h-10 w-10 p-0' : ''}
-            >
-              <ZoomIn className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+            
+            <Button variant="outline" size="sm" onClick={zoomIn}>
+              <ZoomIn className="w-4 h-4" />
             </Button>
-            <Button 
-              variant="outline" 
-              size={isMobile ? 'default' : 'sm'} 
-              onClick={resetZoom} 
-              className={isMobile ? 'h-10 w-10 p-0' : ''}
-            >
-              <RotateCcw className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+            
+            <Button variant="outline" size="sm" onClick={resetZoom}>
+              <RotateCcw className="w-4 h-4" />
             </Button>
           </div>
         </div>
+
         {/* PDF Content */}
-        <div className={`flex-1 overflow-auto bg-muted/30 ${isMobile ? 'p-1' : 'p-8'}`} style={{ scrollBehavior: 'auto' }}>
+        <div className="flex-1 overflow-auto bg-muted/30 p-2 sm:p-8" style={{ scrollBehavior: 'auto' }}>
           <div className="flex justify-center">
-            <div
+            <div 
               ref={containerRef}
-              className="relative bg-white shadow-large rounded-lg overflow-hidden"
-              style={{
+              className="relative bg-white shadow-large rounded-lg overflow-hidden max-w-full"
+              style={{ 
                 transform: `scale(${scale})`,
                 transformOrigin: 'center top',
                 isolation: 'isolate',
-                maxWidth: isMobile ? 'calc(100vw - 16px)' : undefined,
+                maxWidth: '100%'
               }}
             >
               <Document
@@ -251,17 +272,17 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                 onLoadError={handleDocumentLoadError}
                 options={pdfOptions}
                 loading={
-                  <div className={`flex flex-col items-center justify-center ${isMobile ? 'h-64 w-64' : 'h-96 w-96'} bg-white border rounded-lg`}>
+                  <div className="flex flex-col items-center justify-center h-96 w-96 bg-white border rounded-lg">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
                     <p className="text-sm text-muted-foreground">Loading PDF...</p>
                   </div>
                 }
                 error={
-                  <div className={`flex flex-col items-center justify-center ${isMobile ? 'h-64 w-64' : 'h-96 w-96'} bg-white border rounded-lg text-destructive`}>
+                  <div className="flex flex-col items-center justify-center h-96 w-96 bg-white border rounded-lg text-destructive">
                     <div className="text-center p-6 max-w-md">
                       <div className="text-4xl mb-4">📄❌</div>
-                      <h3 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold mb-2`}>Failed to load PDF</h3>
-                      <div className={`${isMobile ? 'text-xs' : 'text-sm'} text-muted-foreground mb-4 space-y-2`}>
+                      <h3 className="text-lg font-semibold mb-2">Failed to load PDF</h3>
+                      <div className="text-sm text-muted-foreground mb-4 space-y-2">
                         <p>This could be due to:</p>
                         <ul className="text-left list-disc list-inside space-y-1">
                           <li>Corrupted or invalid PDF file</li>
@@ -308,27 +329,32 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                   }`}
                   onClick={handleCanvasClick}
                   onMouseMove={handleMouseMove}
-                  onTouchMove={handleMouseMove}
                   onMouseLeave={handleMouseLeave}
-                  onTouchEnd={handleTouchEnd}
                   onMouseDown={(e) => {
-                    if (toolbarState.selectedTool === 'text' || toolbarState.selectedTool === 'signature') {
-                      try {
-                        e.preventDefault();
-                      } catch (error) {
-                        // Ignore passive event listener errors
-                      }
+                    // Check if the target is one of our custom elements
+                    const target = e.target as HTMLElement;
+                    const isCustomElement = target.closest('[data-text-overlay="true"]') || 
+                                           target.closest('[data-signature-overlay="true"]') ||
+                                           target.hasAttribute('data-text-overlay') ||
+                                           target.hasAttribute('data-signature-overlay');
+                    
+                    // If clicking on our custom elements, let them handle their own events
+                    if (isCustomElement) {
+                      return;
                     }
-                  }}
-                  onTouchStart={(e) => {
-                    // Handle touch start for tool placement
-                    if (toolbarState.selectedTool === 'text' || toolbarState.selectedTool === 'signature') {
-                      try {
-                        e.preventDefault();
-                      } catch (error) {
-                        // Ignore passive event listener errors
-                      }
-                      handleCanvasClick(e);
+                    
+                    // Check if the target is a PDF form field
+                    const isFormField = target.matches('input, textarea, select, button') ||
+                                       target.closest('input, textarea, select, button') ||
+                                       // Check for PDF.js specific form elements
+                                       target.classList.contains('textWidgetAnnotation') ||
+                                       target.classList.contains('choiceWidgetAnnotation') ||
+                                       target.classList.contains('buttonWidgetAnnotation') ||
+                                       target.closest('.textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation');
+                    
+                    // Only prevent default if not a form field and using custom tools
+                    if (!isFormField && (toolbarState.selectedTool === 'text' || toolbarState.selectedTool === 'signature')) {
+                      e.preventDefault();
                     }
                   }}
                   style={{
@@ -341,14 +367,14 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     pageNumber={currentPage}
                     onLoadSuccess={handlePageLoadSuccess}
                     renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                    width={isMobile ? Math.min(window.innerWidth - 32, 600) : undefined}
+                    renderAnnotationLayer={true}
+                    renderForms={true}
                   />
                   
                   {/* Overlays Container */}
                   <div 
                     className="absolute inset-0 pointer-events-none"
-                    style={{ zIndex: 10 }}
+                    style={{ zIndex: 1000 }}
                   >
                     {/* Tool placement preview */}
                     {mousePosition && (
@@ -361,13 +387,13 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                         }}
                       >
                         {toolbarState.selectedTool === 'text' && (
-                          <div className={`flex items-center gap-1 bg-primary text-white px-2 py-1 rounded-full ${isMobile ? 'text-xs' : 'text-xs'} shadow-lg opacity-90 animate-bounce`}>
+                          <div className="flex items-center gap-1 bg-primary text-white px-2 py-1 rounded-full text-xs shadow-lg opacity-90 animate-bounce">
                             <span>📝</span>
                             <span>Click to add text</span>
                           </div>
                         )}
                         {toolbarState.selectedTool === 'signature' && selectedSignatureId && (
-                          <div className={`flex items-center gap-1 bg-blue-600 text-white px-2 py-1 rounded-full ${isMobile ? 'text-xs' : 'text-xs'} shadow-lg opacity-90 animate-bounce`}>
+                          <div className="flex items-center gap-1 bg-blue-600 text-white px-2 py-1 rounded-full text-xs shadow-lg opacity-90 animate-bounce">
                             <span>🖋️</span>
                             <span>Click to place signature</span>
                           </div>
