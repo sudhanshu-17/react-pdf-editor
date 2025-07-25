@@ -154,6 +154,7 @@ export const DraggableSignature: React.FC<DraggableSignatureProps> = ({
 
   // Draggable event handlers
   const handleDrag = useCallback((e: DraggableEvent, data: DraggableData) => {
+    // Convert display coordinates back to PDF coordinates for storage
     onUpdate(signatureElement.id, {
       x: data.x / scale,
       y: data.y / scale

@@ -8,6 +8,7 @@ import { TextElement, SignatureElement, ToolbarState } from '@/types/pdf-editor'
 import { DraggableText } from './DraggableText';
 import { DraggableSignature } from './DraggableSignature';
 import { pdfOptions } from '@/lib/pdf-config';
+import { usePDFScale } from '@/hooks/use-pdf-scale';
 
 interface PDFViewerProps {
   file: File;
@@ -56,11 +57,15 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   onStartEdit,
   onStopEdit
 }) => {
-  const [scale, setScale] = useState(1.0);
+  const [userZoom, setUserZoom] = useState(1.0);
   const [pageWidth, setPageWidth] = useState(0);
   const [pageHeight, setPageHeight] = useState(0);
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  
+  // Use the PDF scale hook for proper coordinate system handling
+  const { scaleInfo, displayToPDF, pdfToDisplay, updateScaleInfo } = usePDFScale();
 
   // Handle mobile viewport adjustments for interactive PDFs
   useEffect(() => {
@@ -87,10 +92,24 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     // Silent error handling - could add user notification here if needed
   };
 
-  const handlePageLoadSuccess = (page: any) => {
+  const handlePageLoadSuccess = useCallback((page: any) => {
     setPageWidth(page.width);
     setPageHeight(page.height);
-  };
+    
+    // Calculate actual display dimensions after the page renders
+    setTimeout(() => {
+      if (pageRef.current) {
+        const displayRect = pageRef.current.getBoundingClientRect();
+        updateScaleInfo(
+          page.width,   // PDF native width
+          page.height,  // PDF native height  
+          displayRect.width,  // Actual displayed width
+          displayRect.height, // Actual displayed height
+          userZoom
+        );
+      }
+    }, 100);
+  }, [updateScaleInfo, userZoom]);
 
   const handleCanvasClick = (e: React.MouseEvent) => {
     // Check if the click target is a PDF form field or annotation
@@ -133,13 +152,15 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       const target = e.currentTarget;
       const rect = target.getBoundingClientRect();
       
-      const x = (e.clientX - rect.left) / scale;
-      const y = (e.clientY - rect.top) / scale;
+      // Convert display coordinates to PDF coordinates
+      const displayX = e.clientX - rect.left;
+      const displayY = e.clientY - rect.top;
+      const pdfCoords = displayToPDF(displayX, displayY);
 
       const newTextElement: Omit<TextElement, 'id'> = {
         content: 'New Text',
-        x: Math.max(5, Math.round(x)),
-        y: Math.max(5, Math.round(y)),
+        x: Math.max(5, Math.round(pdfCoords.x)),
+        y: Math.max(5, Math.round(pdfCoords.y)),
         fontSize: toolbarState.fontSize,
         fontFamily: toolbarState.fontFamily,
         color: toolbarState.color,
@@ -155,12 +176,14 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         const target = e.currentTarget;
         const rect = target.getBoundingClientRect();
         
-        const x = Math.max(5, (e.clientX - rect.left) / scale);
-        const y = Math.max(5, (e.clientY - rect.top) / scale);
+        // Convert display coordinates to PDF coordinates
+        const displayX = e.clientX - rect.left;
+        const displayY = e.clientY - rect.top;
+        const pdfCoords = displayToPDF(displayX, displayY);
 
         onSignatureElementUpdate(selectedSignatureId, {
-          x,
-          y,
+          x: Math.max(5, pdfCoords.x),
+          y: Math.max(5, pdfCoords.y),
           pageNumber: currentPage
         });
       }
@@ -191,19 +214,42 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     if (toolbarState.selectedTool === 'text' || toolbarState.selectedTool === 'signature') {
       const target = e.currentTarget;
       const rect = target.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / scale;
-      const y = (e.clientY - rect.top) / scale;
-      setMousePosition({ x, y });
+      const displayX = e.clientX - rect.left;
+      const displayY = e.clientY - rect.top;
+      const pdfCoords = displayToPDF(displayX, displayY);
+      setMousePosition({ x: pdfCoords.x, y: pdfCoords.y });
     }
-  }, [toolbarState.selectedTool, scale]);
+  }, [toolbarState.selectedTool, displayToPDF]);
 
   const handleMouseLeave = useCallback(() => {
     setMousePosition(null);
   }, []);
 
-  const zoomIn = () => setScale(prev => Math.min(prev + 0.2, 3));
-  const zoomOut = () => setScale(prev => Math.max(prev - 0.2, 0.5));
-  const resetZoom = () => setScale(1);
+  const zoomIn = useCallback(() => {
+    const newZoom = Math.min(userZoom + 0.2, 3);
+    setUserZoom(newZoom);
+    if (pageRef.current && pageWidth && pageHeight) {
+      const displayRect = pageRef.current.getBoundingClientRect();
+      updateScaleInfo(pageWidth, pageHeight, displayRect.width, displayRect.height, newZoom);
+    }
+  }, [userZoom, pageWidth, pageHeight, updateScaleInfo]);
+
+  const zoomOut = useCallback(() => {
+    const newZoom = Math.max(userZoom - 0.2, 0.5);
+    setUserZoom(newZoom);
+    if (pageRef.current && pageWidth && pageHeight) {
+      const displayRect = pageRef.current.getBoundingClientRect();
+      updateScaleInfo(pageWidth, pageHeight, displayRect.width, displayRect.height, newZoom);
+    }
+  }, [userZoom, pageWidth, pageHeight, updateScaleInfo]);
+
+  const resetZoom = useCallback(() => {
+    setUserZoom(1);
+    if (pageRef.current && pageWidth && pageHeight) {
+      const displayRect = pageRef.current.getBoundingClientRect();
+      updateScaleInfo(pageWidth, pageHeight, displayRect.width, displayRect.height, 1);
+    }
+  }, [pageWidth, pageHeight, updateScaleInfo]);
 
   return (
     <Card className="flex-1 bg-canvas-bg border-0 shadow-soft overflow-hidden">
@@ -240,7 +286,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             </Button>
             
             <span className="text-sm px-3 min-w-[60px] text-center">
-              {Math.round(scale * 100)}%
+              {Math.round(userZoom * 100)}%
             </span>
             
             <Button variant="outline" size="sm" onClick={zoomIn}>
@@ -260,7 +306,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
               ref={containerRef}
               className="relative bg-white shadow-large rounded-lg overflow-hidden max-w-full"
               style={{ 
-                transform: `scale(${scale})`,
+                transform: `scale(${userZoom})`,
                 transformOrigin: 'center top',
                 isolation: 'isolate',
                 maxWidth: '100%'
@@ -320,6 +366,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                 }
               >
                 <div 
+                  ref={pageRef}
                   className={`relative block ${
                     toolbarState.selectedTool === 'text' 
                       ? 'cursor-crosshair' 
@@ -381,8 +428,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                       <div
                         className="absolute pointer-events-none z-50"
                         style={{
-                          left: mousePosition.x,
-                          top: mousePosition.y,
+                          left: pdfToDisplay(mousePosition.x, mousePosition.y).x,
+                          top: pdfToDisplay(mousePosition.x, mousePosition.y).y,
                           transform: 'translate(-2px, -2px)'
                         }}
                       >
@@ -413,7 +460,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                         onSelect={onTextElementSelect}
                         onStartEdit={onStartEdit}
                         onStopEdit={onStopEdit}
-                        scale={1}
+                        scale={scaleInfo.displayScale}
                       />
                     ))}
 
@@ -426,7 +473,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                         onUpdate={onSignatureElementUpdate}
                         onDelete={onSignatureElementDelete}
                         onSelect={onSignatureElementSelect}
-                        scale={1}
+                        scale={scaleInfo.displayScale}
                       />
                     ))}
                   </div>

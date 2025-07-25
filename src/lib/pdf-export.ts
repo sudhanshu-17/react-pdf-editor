@@ -226,23 +226,10 @@ export const exportAsPDF = async (
         // Skip empty text
         if (!textElement.content.trim()) return;
 
-        // Find the corresponding DOM element for position
-        const domElement = window.document.querySelector(
-          `[data-text-overlay="true"][data-text-id="${textElement.id}"]`
-        ) as HTMLElement;
-        
-        let x, y;
-        
-        if (domElement) {
-          // Use DOM position if element is found
-          const rect = domElement.getBoundingClientRect();
-          x = (rect.left - pdfRect.left) * scaleFactor;
-          y = (rect.top - pdfRect.top) * scaleFactor;
-        } else {
-          // Fallback to stored coordinates
-          x = textElement.x * scaleFactor;
-          y = textElement.y * scaleFactor;
-        }
+        // Use the stored PDF-native coordinates directly (more reliable)
+        // The coordinates are now stored in the PDF coordinate system
+        let x = textElement.x * scaleFactor;
+        let y = textElement.y * scaleFactor;
 
         // Convert font size to PDF units (more accurate conversion)
         const fontSizeMM = (textElement.fontSize * scaleFactor * 0.75); // 0.75 is the px to pt conversion
@@ -311,21 +298,17 @@ export const exportAsPDF = async (
         const signatureElement = currentPageSignatureElements.find(sig => sig.id === signatureId);
         if (!signatureElement) continue;
         
-        const rect = element.getBoundingClientRect();
-        
         const signatureImg = element.querySelector('img') as HTMLImageElement;
         if (!signatureImg || !signatureImg.src) {
           continue;
         }
         
-        const relativeX = (rect.left - pdfRect.left);
-        const relativeY = (rect.top - pdfRect.top);
+        // Use the stored PDF-native coordinates directly (more reliable)
+        const x = signatureElement.x * scaleFactor;
+        const y = signatureElement.y * scaleFactor;
         
-        const x = relativeX * scaleFactor;
-        const y = relativeY * scaleFactor;
-        
-        const signatureWidthMM = rect.width * scaleFactor;
-        const signatureHeightMM = rect.height * scaleFactor;
+        const signatureWidthMM = signatureElement.width * scaleFactor;
+        const signatureHeightMM = signatureElement.height * scaleFactor;
         
         // Add signature image to PDF with high quality
         pdf.addImage(

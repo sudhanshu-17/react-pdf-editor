@@ -42,6 +42,7 @@ export const DraggableText: React.FC<DraggableTextProps> = ({
       // Ignore passive event listener errors
     }
     
+    // Convert display coordinates back to PDF coordinates for storage
     onUpdate(textElement.id, {
       x: data.x / scale,
       y: data.y / scale
