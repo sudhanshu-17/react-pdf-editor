@@ -20,6 +20,8 @@ import { exportAsPDF, exportAsImage, exportProjectData, exportTextData } from '@
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Menu } from 'lucide-react';
+import { exportPDFWithFormData, setPDFLibExportToast } from '@/lib/pdf-lib-export';
+import { getFormFieldTracker } from '@/lib/form-field-tracker';
 
 // Storage keys for localStorage
 const SAVED_SIGNATURES_KEY = 'pdf-editor-saved-signatures';
@@ -71,13 +73,21 @@ export const PDFEditor: React.FC = () => {
     saveSavedSignatures(savedSignatures);
   }, [savedSignatures]);
 
+  useEffect(() => {
+    setPDFLibExportToast((msg) => {
+      toast({ title: 'PDF Export Debug', description: msg });
+    });
+  }, [toast]);
+
   const handleFileUpload = useCallback((file: File) => {
     setDocument({
       file,
       name: file.name,
       numPages: 0,
       textElements: [],
-      signatureElements: []
+      signatureElements: [],
+      formFields: [],
+      formData: {}
     });
     setCurrentPage(1);
     setSelectedTextId(null);
@@ -459,24 +469,27 @@ export const PDFEditor: React.FC = () => {
     return document.name.replace('.pdf', '').replace(/[^a-zA-Z0-9]/g, '_');
   }, [document]);
 
-  // Export as Real PDF
+  // Export as Real PDF (with form data)
   const handleExportPDF = useCallback(async () => {
     if (!document) return;
-    
     try {
+      const formFieldTracker = getFormFieldTracker();
+      if (formFieldTracker.scanForFormFields) {
+        formFieldTracker.scanForFormFields();
+        await new Promise(res => setTimeout(res, 200));
+      }
+      const formData = formFieldTracker.getFormData();
       toast({
-        title: "Exporting as PDF...",
-        description: "Creating your PDF with text overlays and signatures",
+        title: "DEBUG: Form Data at Export",
+        description: JSON.stringify(formData),
       });
-
+      console.log('DEBUG: Exporting PDF with formData:', formData);
       const fileName = getFileName();
-      await exportAsPDF(document, fileName, currentPage);
-      
+      await exportPDFWithFormData(document, formData, fileName);
       toast({
         title: "PDF Export Complete! 📄",
         description: "Your edited PDF has been downloaded successfully",
       });
-      
     } catch (error) {
       toast({
         title: "Export Failed",
@@ -484,26 +497,31 @@ export const PDFEditor: React.FC = () => {
         variant: "destructive",
       });
     }
-  }, [document, toast, getFileName, currentPage]);
+  }, [document, toast, getFileName]);
 
-  // Export as PNG Image
+  // Export as PNG Image (with form field values)
   const handleExportImage = useCallback(async () => {
     if (!document) return;
-    
     try {
+      // Force a scan for form fields right before export
+      const formFieldTracker = getFormFieldTracker();
+      if (formFieldTracker.scanForFormFields) {
+        formFieldTracker.scanForFormFields();
+        // Wait a short time for DOM to update
+        await new Promise(res => setTimeout(res, 200));
+      }
+      const formFields = formFieldTracker.getFormFields();
       toast({
-        title: "Exporting as Image...",
-        description: "Converting your PDF to PNG format",
+        title: "DEBUG: Form Fields at Export",
+        description: JSON.stringify(formFields),
       });
-
+      console.log('DEBUG: Exporting Image with formFields:', formFields);
       const fileName = getFileName();
-      await exportAsImage(fileName);
-      
+      await exportAsImage(fileName, formFields);
       toast({
         title: "Image Export Complete! 🖼️",
         description: "Your PDF has been downloaded as a PNG image",
       });
-      
     } catch (error) {
       toast({
         title: "Export Failed",

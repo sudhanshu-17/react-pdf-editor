@@ -4,7 +4,8 @@ import jsPDF from 'jspdf';
 
 // Export the PDF viewer as an image (PNG) with signature support
 export const exportAsImage = async (
-  filename: string = 'edited-pdf'
+  filename: string = 'edited-pdf',
+  formFields?: import('@/types/pdf-editor').FormField[]
 ): Promise<void> => {
   try {
     // Wait for any pending renders
@@ -125,6 +126,37 @@ export const exportAsImage = async (
 
     // Wait for all signatures to be drawn
     await Promise.all(signaturePromises);
+
+    // Draw form field values if provided
+    if (formFields && formFields.length > 0) {
+      formFields.forEach(field => {
+        try {
+          // Only draw visible fields (skip buttons)
+          if (field.type === 'button') return;
+          // Calculate position and size on export canvas
+          const pdfRect = originalCanvas.getBoundingClientRect();
+          const pageRect = pdfPageElement.getBoundingClientRect();
+          // Relative to PDF page
+          const relX = field.x / pageRect.width;
+          const relY = field.y / pageRect.height;
+          const relW = field.width / pageRect.width;
+          const relH = field.height / pageRect.height;
+          const x = relX * exportCanvas.width;
+          const y = relY * exportCanvas.height;
+          const w = relW * exportCanvas.width;
+          const h = relH * exportCanvas.height;
+          ctx.save();
+          // Only draw the value, no border or background
+          ctx.fillStyle = '#222';
+          ctx.font = `${Math.max(8, h * 0.55)}px Arial`;
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(field.value), x + 2, y + h / 2);
+          ctx.restore();
+        } catch (formFieldError) {
+          // Silent error handling for individual fields
+        }
+      });
+    }
 
     // Convert canvas to high-quality PNG blob and download
     exportCanvas.toBlob((blob) => {

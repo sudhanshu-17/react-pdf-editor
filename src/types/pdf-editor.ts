@@ -35,12 +35,32 @@ export interface SavedSignature {
   timestamp: number;
 }
 
+export interface FormField {
+  id: string;
+  name: string;
+  type: 'text' | 'textarea' | 'checkbox' | 'radio' | 'select' | 'button';
+  value: string | boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  pageNumber: number;
+  fieldName: string; // Original PDF field name
+  options?: string[]; // For select/radio fields
+}
+
+export interface FormFieldData {
+  [fieldName: string]: string | boolean;
+}
+
 export interface PDFDocument {
   file: File;
   name: string;
   numPages: number;
   textElements: TextElement[];
   signatureElements: SignatureElement[];
+  formFields: FormField[];
+  formData: FormFieldData;
 }
 
 export interface ToolbarState {
