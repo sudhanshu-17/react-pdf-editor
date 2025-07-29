@@ -478,14 +478,27 @@ export const PDFEditor: React.FC = () => {
         formFieldTracker.scanForFormFields();
         await new Promise(res => setTimeout(res, 200));
       }
-      const formData = formFieldTracker.getFormData();
-      toast({
-        title: "DEBUG: Form Data at Export",
-        description: JSON.stringify(formData),
+      
+      // Use the same data source as image export (which works perfectly)
+      const formFields = formFieldTracker.getFormFields();
+      
+      // Convert form fields array to form data object for PDF-lib
+      const formData: Record<string, string | boolean> = {};
+      formFields.forEach(field => {
+        if (field.name && field.value !== undefined) {
+          formData[field.name] = field.value;
+        }
       });
-      console.log('DEBUG: Exporting PDF with formData:', formData);
+      
+      toast({
+        title: "DEBUG: Form Fields at PDF Export",
+        description: `Found ${formFields.length} fields with values`,
+      });
+      console.log('DEBUG: Exporting PDF with formFields:', formFields);
+      console.log('DEBUG: Converted formData:', formData);
+      
       const fileName = getFileName();
-      await exportPDFWithFormData(document, formData, fileName);
+      await exportPDFWithFormData(document, formData, fileName, formFields);
       toast({
         title: "PDF Export Complete! 📄",
         description: "Your edited PDF has been downloaded successfully",

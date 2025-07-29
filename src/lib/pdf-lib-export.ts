@@ -8,7 +8,8 @@ export const setPDFLibExportToast = (fn: (msg: string) => void) => { showToast =
 export const exportPDFWithFormData = async (
   document: PDFDocument,
   formData: FormFieldData,
-  filename: string = 'edited-pdf'
+  filename: string = 'edited-pdf',
+  formFields?: import('@/types/pdf-editor').FormField[]
 ): Promise<void> => {
   try {
     // Read the original PDF file
@@ -41,40 +42,127 @@ export const exportPDFWithFormData = async (
     // Always flatten the form so values are visible
     form.flatten();
 
-    // Draw form field values as text overlays for extra reliability
+        // Draw form field values as text overlays for GUARANTEED visibility
+    // This ensures form fields are visible even if PDF-lib form filling fails
     const pages = pdfDoc.getPages();
-    if (document.formFields && document.formFields.length > 0) {
-      const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      document.formFields.forEach(field => {
-        // Only draw visible fields (skip buttons)
-        if (field.type === 'button') return;
-        // Find the page
-        const pageIndex = (field.pageNumber || 1) - 1;
-        if (pageIndex < 0 || pageIndex >= pages.length) return;
-        const page = pages[pageIndex];
-        const { height: pageHeight } = page.getSize();
-        // Calculate PDF coordinates (PDF-lib uses bottom-left origin)
-        const x = field.x;
-        const y = pageHeight - field.y - field.height / 2;
-        // DEBUG: Draw a red rectangle at the field position
-        page.drawRectangle({
-          x: x,
-          y: y - field.height / 2,
-          width: field.width,
-          height: field.height,
-          color: rgb(1, 0, 0),
-          opacity: 0.2,
-          borderColor: rgb(1, 0, 0),
-          borderWidth: 1,
+    const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    
+    // Use formFields array if available (more reliable positioning), otherwise fallback to formData
+    if (formFields && formFields.length > 0) {
+      // Get viewport information for proper coordinate conversion (fixes mobile issues)
+      const pdfContainer = typeof window !== 'undefined' ? window.document.querySelector('.react-pdf__Document') : null;
+      const pdfPageElement = pdfContainer ? pdfContainer.querySelector('.react-pdf__Page') : null;
+      const originalCanvas = pdfPageElement ? pdfPageElement.querySelector('canvas') as HTMLCanvasElement : null;
+      
+      // Use the reliable form fields array (same as image export)
+      formFields.forEach(field => {
+        try {
+          // Only draw visible fields (skip buttons)
+          if (field.type === 'button' || !field.value) return;
+          
+          // Get the page
+          const pageIndex = (field.pageNumber || 1) - 1;
+          if (pageIndex < 0 || pageIndex >= pages.length) return;
+          
+          const page = pages[pageIndex];
+          const { width: pageWidth, height: pageHeight } = page.getSize();
+          
+          let x, y, fontSize, maxWidth;
+          
+          // If we have DOM elements available, use proper scaling conversion (fixes mobile)
+          if (originalCanvas && pdfPageElement) {
+            try {
+              const pdfRect = originalCanvas.getBoundingClientRect();
+              const pageRect = pdfPageElement.getBoundingClientRect();
+              
+              // Convert field position to relative coordinates (same as image export)
+              const relX = field.x / pageRect.width;
+              const relY = field.y / pageRect.height;
+              const relW = field.width / pageRect.width;
+              const relH = field.height / pageRect.height;
+              
+                             // Convert to PDF coordinates
+               x = relX * pageWidth;
+               y = pageHeight - (relY * pageHeight) - (relH * pageHeight * 0.75);
+               fontSize = Math.max(8, Math.min(relH * pageHeight * 0.5, 12));
+               maxWidth = Math.max(50, relW * pageWidth - 4);
+              
+                         } catch (conversionError) {
+               // Fallback to direct coordinates if DOM conversion fails
+               x = field.x;
+               y = pageHeight - field.y - field.height * 0.75;
+               fontSize = Math.max(8, Math.min(field.height * 0.5, 12));
+               maxWidth = Math.max(50, field.width - 4);
+             }
+           } else {
+             // Fallback for when DOM elements are not available
+             x = field.x;
+             y = pageHeight - field.y - field.height * 0.75;
+             fontSize = Math.max(8, Math.min(field.height * 0.5, 12));
+             maxWidth = Math.max(50, field.width - 4);
+           }
+          
+          // Draw the field value
+          page.drawText(String(field.value), {
+            x: x + 2,
+            y: y - fontSize * 0.2,
+            size: fontSize,
+            font: helveticaFont,
+            color: rgb(0, 0, 0),
+            maxWidth: maxWidth,
+          });
+          
+        } catch (fieldError) {
+          console.warn(`Error drawing form field ${field.name}:`, fieldError);
+        }
+      });
+    } else {
+      // Fallback to formData with PDF field positioning
+      Object.entries(formData).forEach(([fieldName, fieldValue]) => {
+        if (!fieldValue || typeof fieldValue !== 'string') return;
+        
+        // Try to find corresponding PDF form field for positioning
+        const pdfField = form.getFields().find(f => {
+          const pdfFieldName = f.getName();
+          return pdfFieldName === fieldName || 
+                 pdfFieldName.toLowerCase() === fieldName.toLowerCase() ||
+                 pdfFieldName.toLowerCase().includes(fieldName.toLowerCase()) ||
+                 fieldName.toLowerCase().includes(pdfFieldName.toLowerCase());
         });
-        // Draw the value as large red text
-        page.drawText(String(field.value), {
-          x: x + 2,
-          y: y,
-          size: Math.max(14, field.height * 0.7),
-          font: helveticaFont,
-          color: rgb(1, 0, 0),
-        });
+        
+        if (pdfField) {
+          try {
+            const fieldWidgets = pdfField.acroField.getWidgets();
+            if (fieldWidgets.length > 0) {
+              const widget = fieldWidgets[0];
+              const rect = widget.getRectangle();
+              
+              // Use first page as fallback (most forms are single page)
+              const page = pages[0];
+              
+              // Calculate position (PDF-lib uses bottom-left origin)
+              const x = rect.x;
+              const y = rect.y;
+              const fieldWidth = rect.width;
+              const fieldHeight = rect.height;
+              
+                              // Calculate appropriate font size based on field height
+                const fontSize = Math.max(8, Math.min(fieldHeight * 0.5, 12));
+              
+                              // Draw the field value with proper styling
+                page.drawText(String(fieldValue), {
+                  x: x + 2,
+                  y: y + (fieldHeight - fontSize) * 0.75,
+                  size: fontSize,
+                  font: helveticaFont,
+                  color: rgb(0, 0, 0),
+                  maxWidth: Math.max(50, fieldWidth - 4),
+                });
+            }
+          } catch (widgetError) {
+            console.warn(`Error getting field position for ${fieldName}, using fallback`);
+          }
+        }
       });
     }
     
@@ -153,7 +241,7 @@ const addCustomElements = async (
 ): Promise<void> => {
   const pages = pdfDoc.getPages();
   
-  // Add text elements
+  // Add text elements - BACK TO ORIGINAL WORKING VERSION
   for (const textElement of textElements) {
     const pageIndex = textElement.pageNumber - 1;
     if (pageIndex < 0 || pageIndex >= pages.length) continue;
@@ -162,7 +250,7 @@ const addCustomElements = async (
     const { width: pageWidth, height: pageHeight } = page.getSize();
     
     try {
-      // Convert coordinates (PDF-lib uses bottom-left origin)
+      // Convert coordinates (PDF-lib uses bottom-left origin) - ORIGINAL WORKING CODE
       const x = textElement.x;
       const y = pageHeight - textElement.y - textElement.fontSize;
       
@@ -197,7 +285,7 @@ const addCustomElements = async (
     }
   }
   
-  // Add signature elements
+  // Add signature elements - BACK TO ORIGINAL WORKING VERSION
   for (const signatureElement of signatureElements) {
     const pageIndex = signatureElement.pageNumber - 1;
     if (pageIndex < 0 || pageIndex >= pages.length) continue;
@@ -223,9 +311,9 @@ const addCustomElements = async (
         }
       }
       
-      // Convert coordinates (PDF-lib uses bottom-left origin)
+      // Convert coordinates (PDF-lib uses bottom-left origin) - Original + small downward adjustment
       const x = signatureElement.x;
-      const y = pageHeight - signatureElement.y - signatureElement.height;
+      const y = pageHeight - signatureElement.y - signatureElement.height - 20;
       
       // Draw image
       page.drawImage(image, {
@@ -234,7 +322,7 @@ const addCustomElements = async (
         width: signatureElement.width,
         height: signatureElement.height,
         opacity: signatureElement.opacity,
-        rotate: signatureElement.rotation ? { angle: signatureElement.rotation } : undefined,
+        rotate: signatureElement.rotation ? degrees(signatureElement.rotation) : undefined,
       });
       
     } catch (error) {
@@ -310,7 +398,7 @@ export const exportFlattenedPDF = async (
     const form = pdfDoc.getForm();
     
     // Fill in the form fields with the captured data
-    await fillFormFields(form, formData);
+    await fillFormFieldsFuzzy(form, formData);
     
     // Add custom text elements and signatures
     await addCustomElements(pdfDoc, document.textElements, document.signatureElements);
