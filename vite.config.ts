@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => ({
       'Cross-Origin-Opener-Policy': 'same-origin',
     },
   },
+  base: '/pdf-editor/',
   plugins: [
     react(),
     mode === 'development' &&

@@ -8,8 +8,8 @@ const setupPDFWorker = () => {
   // Array of worker sources to try (in order of preference)
   const workerSources = [
     // Local files (best for avoiding CORS)
-    '/pdf.worker.min.mjs',
-    '/pdf.worker.min.js',
+    '/pdf-editor/pdf.worker.min.mjs',
+    '/pdf-editor/pdf.worker.min.js',
     
     // CDN fallbacks
     `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`,
